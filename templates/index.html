@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>安全共享剪贴板</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h2>🔒 端对端加密剪贴板</h2>
+            <div id="connection-status" class="status disconnected">未连接</div>
+        </header>
+
+        <section class="security-section">
+            <label for="password">共享密码 (所有设备需一致)</label>
+            <input type="password" id="password" placeholder="输入密码以解锁内容..." autocomplete="off">
+        </section>
+
+        <section class="content-section">
+            <textarea id="clipboard" placeholder="在此输入内容，将自动加密同步..." disabled></textarea>
+            <div class="actions">
+                <button id="copy-btn" onclick="copyToSystem()">📋 复制到系统剪贴板</button>
+                <button id="clear-btn" onclick="clearBoard()" class="secondary">清空</button>
+            </div>
+        </section>
+        
+        <div id="log" class="log-msg"></div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

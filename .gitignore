@@ -1,0 +1,8 @@
+# 忽略 SSL 证书和私钥
+key.pem
+cert.pem
+gen_cert_temp.py
+
+# 忽略 Python 缓存文件
+__pycache__/
+*.pyc

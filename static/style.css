@@ -1,0 +1,53 @@
+/* 文件名: static/style.css */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f4f6f8;
+    color: #333;
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+    height: 100vh;
+}
+
+.container {
+    background: white;
+    width: 100%;
+    max-width: 600px;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    height: 90vh; /* 适配手机高度 */
+}
+
+header { display: flex; justify-content: space-between; align-items: center; }
+h2 { font-size: 1.2rem; color: #2c3e50; }
+
+.status { font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; }
+.disconnected { background: #ffebee; color: #c62828; }
+.connected { background: #e8f5e9; color: #2e7d32; }
+
+label { font-size: 0.9rem; font-weight: 600; color: #555; display: block; margin-bottom: 5px; }
+input[type="password"] {
+    width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px;
+}
+
+textarea {
+    width: 100%; flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px;
+    font-size: 16px; resize: none; background: #fafafa;
+}
+textarea:disabled { background: #eee; cursor: not-allowed; }
+
+.actions { display: flex; gap: 10px; }
+button {
+    flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer;
+    background: #007aff; color: white; transition: background 0.2s;
+}
+button:active { background: #0056b3; }
+button.secondary { background: #e0e0e0; color: #333; flex: 0.3; }
+
+.log-msg { font-size: 0.8rem; color: #888; text-align: center; height: 20px; }
