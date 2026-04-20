@@ -6,3 +6,9 @@ gen_cert_temp.py
 # 忽略 Python 缓存文件
 __pycache__/
 *.pyc
+.pytest_cache/
+tests/__pycache__/
+
+# 忽略临时导出文件
+tmp_pdf_pages/
+tmp_pdf_pages_hi/
