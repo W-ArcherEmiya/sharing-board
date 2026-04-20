@@ -2,32 +2,136 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>安全共享剪贴板</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Clipboard</title>
+    <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h2>🔒 端对端加密剪贴板</h2>
-            <div id="connection-status" class="status disconnected">未连接</div>
-        </header>
+    <main class="app-shell">
+        <section class="panel hero">
+            <div class="hero-brand">
+                <div class="bili-tv-mark" aria-hidden="true">
+                    <span class="bili-tv-screen"></span>
+                    <span class="bili-tv-antenna left"></span>
+                    <span class="bili-tv-antenna right"></span>
+                </div>
+                <div class="hero-copy">
+                    <p class="eyebrow">SECURE CLIPBOARD</p>
+                    <h1>安全剪贴板</h1>
+                </div>
+            </div>
 
-        <section class="security-section">
-            <label for="password">共享密码 (所有设备需一致)</label>
-            <input type="password" id="password" placeholder="输入密码以解锁内容..." autocomplete="off">
-        </section>
+            <div class="hero-tools">
+                <button id="theme-toggle-btn" type="button" class="theme-switch" aria-pressed="false">
+                    <span class="theme-switch-track">
+                        <span class="theme-switch-thumb"></span>
+                    </span>
+                    <span class="theme-switch-label">深色模式</span>
+                </button>
 
-        <section class="content-section">
-            <textarea id="clipboard" placeholder="在此输入内容，将自动加密同步..." disabled></textarea>
-            <div class="actions">
-                <button id="copy-btn" onclick="copyToSystem()">📋 复制到系统剪贴板</button>
-                <button id="clear-btn" onclick="clearBoard()" class="secondary">清空</button>
+                <div id="status-summary" class="status-summary disconnected">
+                    <span class="live-badge"><span class="status-indicator"></span>LIVE</span>
+                    <div class="status-copy">
+                        <strong id="connection-status">未连接</strong>
+                        <span id="room-status">未加入房间</span>
+                    </div>
+                </div>
             </div>
         </section>
-        
-        <div id="log" class="log-msg"></div>
-    </div>
 
-    <script src="/static/script.js"></script>
+        <section id="invite-panel" class="panel invite-panel collapsed">
+            <div class="invite-panel-head">
+                <div>
+                    <p class="eyebrow">QUICK JOIN</p>
+                    <h2>邀请其他设备</h2>
+                </div>
+                <button id="toggle-invite-panel-btn" type="button" class="secondary invite-panel-toggle" aria-expanded="false">展开二维码与邀请信息</button>
+            </div>
+
+            <div class="invite-panel-config">
+                <label class="field">
+                    <span class="field-tag">ROOM</span>
+                    <input type="text" id="room-id" maxlength="64" placeholder="例如：team-sync">
+                </label>
+                <label class="field">
+                    <span class="field-tag">KEY</span>
+                    <div class="password-wrap">
+                        <input type="password" id="password" placeholder="所有设备输入同一密码" autocomplete="off">
+                        <button id="toggle-password-btn" type="button" class="icon-btn" aria-label="显示密码" aria-pressed="false"></button>
+                    </div>
+                </label>
+            </div>
+
+            <div class="invite-panel-body">
+                <div class="invite-copy">
+                    <p class="subtitle invite-subtitle">主设备会把地址和密码组合成邀请信息；其他设备可扫码接入，也可手动输入房间号和密码。</p>
+                    <div class="actions invite-actions">
+                        <button id="copy-invite-btn" type="button">复制邀请链接</button>
+                        <button id="regen-invite-btn" type="button" class="secondary">重置房间密码</button>
+                    </div>
+                    <div id="invite-link-preview" class="invite-link-preview">邀请链接生成中...</div>
+                </div>
+                <div class="qr-panel">
+                    <div id="invite-qr" class="invite-qr" aria-label="共享接入二维码"></div>
+                    <p class="qr-note">不能扫码的设备仍可手动输入房间号和密码加入。</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel content-grid">
+            <div class="card text-card">
+                <div class="card-head">
+                    <h2>文字同步</h2>
+                    <span class="hint">支持自动加密同步</span>
+                </div>
+                <textarea id="clipboard" placeholder="输入文字后会同步到同房间设备..." disabled></textarea>
+                <div class="card-footer">
+                    <div class="textarea-meta">
+                        <span id="clipboard-sync-status" class="sync-pill">等待同步</span>
+                        <span id="clipboard-count" class="char-count">0 字</span>
+                    </div>
+                    <div class="actions">
+                        <button id="clear-btn" type="button" class="secondary ghost-pink-btn">清空文本</button>
+                        <button id="copy-btn" type="button" class="pink-btn">复制文本</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card file-card">
+                <div class="card-head">
+                    <h2>文件传输</h2>
+                    <span class="hint">支持断点续传</span>
+                </div>
+                <label class="upload-box" for="file-input">
+                    <input type="file" id="file-input" multiple disabled>
+                    <span class="upload-icon" aria-hidden="true"></span>
+                    <strong>点击或拖拽文件到此处分享</strong>
+                    <small>单文件最大 64MB · 加密传输</small>
+                </label>
+                <div class="file-bottom-panel">
+                    <div class="transfer-meta">
+                        <div id="file-meta" class="file-meta">暂无共享文件</div>
+                        <div id="transfer-status" class="transfer-status">等待传输</div>
+                    </div>
+                    <div class="transfer-progress-shell" aria-hidden="true">
+                        <div id="transfer-progress-bar" class="transfer-progress-bar"></div>
+                    </div>
+                    <div id="transfer-progress-text" class="transfer-progress-text">0%</div>
+                    <div id="received-files" class="received-files">
+                        <div class="received-empty">这里空空如也，快去同步点什么吧~</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel footnote">
+            <p>提示：房间号用于隔离会话，密码用于派生加密密钥；两者都需要一致。</p>
+            <div id="log" class="log-msg"></div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="/static/script.js?v={{ asset_version }}"></script>
 </body>
 </html>
