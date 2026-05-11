@@ -755,36 +755,29 @@ button:not(:disabled):not(.icon-btn):hover,
 }
 
 .upload-icon {
+    display: inline-grid;
+    place-items: center;
     width: 96px;
     height: 96px;
     position: relative;
     border-radius: 50%;
     background: rgba(0, 161, 214, 0.1);
+    color: var(--bili-blue);
 }
 
-.upload-icon::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 24px;
-    width: 20px;
-    height: 20px;
-    border-top: 3px solid var(--bili-blue);
-    border-left: 3px solid var(--bili-blue);
-    transform: translateX(-50%) rotate(45deg);
+.upload-icon svg {
+    width: 46px;
+    height: 46px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
+.upload-icon::before,
 .upload-icon::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 31px;
-    width: 4px;
-    height: 30px;
-    background: var(--bili-blue);
-    transform: translateX(-50%);
-    border-radius: var(--radius-pill);
-    box-shadow: 0 27px 0 -11px var(--bili-blue);
+    content: none;
 }
 
 .upload-box:hover {
@@ -871,9 +864,55 @@ button:not(:disabled):not(.icon-btn):hover,
     padding: 12px 14px;
 }
 
+.received-file > div {
+    min-width: 0;
+}
+
 .received-file strong {
     display: block;
     font-size: 0.95rem;
+    overflow-wrap: anywhere;
+}
+
+.received-file .download-link {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    overflow: visible;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--bili-blue);
+    white-space: nowrap;
+}
+
+.received-file .download-link::after {
+    content: none;
+}
+
+.received-file .download-link svg {
+    width: 28px;
+    height: 28px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.received-file .download-link:hover {
+    box-shadow: none;
+    transform: translateY(-1px);
+}
+
+.received-file.downloaded .download-link {
+    background: transparent;
+    color: var(--bili-blue);
+    box-shadow: none;
 }
 
 .footnote {

@@ -960,7 +960,20 @@ function addDownloadableFile(transferId, fileName, blob, size) {
     link.className = "download-link";
     link.href = url;
     link.download = fileName;
-    link.textContent = "下载";
+    link.setAttribute("aria-label", `下载 ${fileName}`);
+    link.title = "下载";
+    link.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 3v14"></path>
+            <path d="m6 11 6 6 6-6"></path>
+        </svg>
+    `;
+    link.addEventListener("click", () => {
+        item.classList.add("downloaded");
+        meta.textContent = `${formatBytes(size)} · 已下载`;
+        setTransferInfo(fileName, size, "已下载");
+        logEl.textContent = `${fileName} 已下载`;
+    });
 
     item.append(info, link);
     ensureReceivedFilesReady();
