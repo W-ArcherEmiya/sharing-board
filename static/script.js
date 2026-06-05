@@ -7,6 +7,7 @@ const ROOM_SYNC_DELAY_MS = 250;
 
 let ws = null;
 let sessionKey = null;
+let sessionKeyFingerprint = "";
 let activeRoom = "";
 let keyRefreshVersion = 0;
 let textSyncTimer = null;
@@ -37,6 +38,7 @@ const fileInputEl = document.getElementById("file-input");
 const uploadBoxEl = fileInputEl.closest(".upload-box");
 const fileMetaEl = document.getElementById("file-meta");
 const transferStatusEl = document.getElementById("transfer-status");
+const fileBottomPanelEl = document.querySelector(".file-bottom-panel");
 const receivedFilesEl = document.getElementById("received-files");
 const copyInviteBtn = document.getElementById("copy-invite-btn");
 const regenInviteBtn = document.getElementById("regen-invite-btn");
@@ -50,6 +52,7 @@ const transferProgressBarEl = document.getElementById("transfer-progress-bar");
 const transferProgressTextEl = document.getElementById("transfer-progress-text");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
 const toastEl = document.getElementById("toast");
+const mobileTabButtons = Array.from(document.querySelectorAll("[data-mobile-tab]"));
 
 passwordEl.addEventListener("input", () => {
     syncInviteState();
@@ -155,6 +158,12 @@ toggleInvitePanelBtn.addEventListener("click", () => {
     applyInvitePanelState();
 });
 
+mobileTabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        setActiveMobileTab(button.dataset.mobileTab);
+    });
+});
+
 function initializeInviteCredentials() {
     const inviteParams = new URLSearchParams(window.location.hash.slice(1));
     const hashRoom = normalizeRoom(inviteParams.get("room") || "");
@@ -223,6 +232,18 @@ function applyInvitePanelState() {
     invitePanelEl.classList.toggle("collapsed", shouldCollapse);
     toggleInvitePanelBtn.textContent = shouldCollapse ? "展开二维码与邀请信息" : "收起二维码与邀请信息";
     toggleInvitePanelBtn.setAttribute("aria-expanded", String(!shouldCollapse));
+}
+
+function setActiveMobileTab(tabName) {
+    const knownTabs = new Set(["text", "file", "connect"]);
+    const nextTab = knownTabs.has(tabName) ? tabName : "file";
+    document.body.dataset.mobileTab = nextTab;
+
+    for (const button of mobileTabButtons) {
+        const isActive = button.dataset.mobileTab === nextTab;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-current", isActive ? "page" : "false");
+    }
 }
 
 function scheduleQrRefresh(inviteLink) {
@@ -372,6 +393,12 @@ function sendJoinMessage() {
         return;
     }
 
+    if (!hasSessionKeyFor(room, passwordEl.value)) {
+        setRoomStatus("正在准备会话密钥...", "muted");
+        updateControls();
+        return;
+    }
+
     if (activeRoom === room) {
         updateControls();
         return;
@@ -386,9 +413,10 @@ async function refreshSessionKey() {
     const version = ++keyRefreshVersion;
     const password = passwordEl.value;
     const room = normalizeRoom(roomEl.value);
+    sessionKey = null;
+    sessionKeyFingerprint = "";
 
     if (!password || !room) {
-        sessionKey = null;
         updateControls();
         return;
     }
@@ -422,15 +450,18 @@ async function refreshSessionKey() {
         }
 
         sessionKey = derivedKey;
+        sessionKeyFingerprint = createSessionKeyFingerprint(room, password);
         logEl.textContent = "会话密钥已就绪";
         updateControls();
         await flushPendingEncryptedMessages();
+        scheduleJoin();
         maybeResumeOutgoingTransfer();
     } catch (error) {
         console.error(error);
         setClipboardSyncState("error", "同步失败");
         if (version === keyRefreshVersion) {
             sessionKey = null;
+            sessionKeyFingerprint = "";
             logEl.textContent = "会话密钥生成失败";
             updateControls();
         }
@@ -845,6 +876,10 @@ function handleFileStatus(message) {
     const statusText = describeTransferStatus(message.status, message.received_chunks, message.total_chunks);
 
     if (activeOutgoingTransfer && activeOutgoingTransfer.transferId === message.transfer_id) {
+        const progress = message.total_chunks > 0
+            ? Math.round((message.received_chunks / message.total_chunks) * 100)
+            : 0;
+        updateTransferProgress(progress);
         setTransferInfo(
             activeOutgoingTransfer.metadata.fileName,
             activeOutgoingTransfer.metadata.size,
@@ -859,11 +894,16 @@ function handleFileStatus(message) {
 
     const transfer = incomingTransfers.get(message.transfer_id);
     if (transfer) {
+        const progress = message.total_chunks > 0
+            ? Math.round((message.received_chunks / message.total_chunks) * 100)
+            : 0;
+        updateTransferProgress(progress);
         setTransferInfo(transfer.metadata.fileName, transfer.totalSize, statusText);
         return;
     }
 
-    transferStatusEl.textContent = statusText;
+    setTransferActivity(true);
+    transferStatusEl.textContent = "收到文件状态，等待文件解密";
 }
 
 async function markOutgoingTransferComplete(transfer) {
@@ -1014,6 +1054,7 @@ function resetSharedState() {
     clipboardEl.value = "";
     fileMetaEl.textContent = "暂无共享文件";
     transferStatusEl.textContent = "等待传输";
+    setTransferActivity(false);
     incomingTransfers.clear();
 
     for (const { url, element } of receivedDownloads.values()) {
@@ -1046,7 +1087,20 @@ function canSync() {
             ws.readyState === WebSocket.OPEN &&
             room &&
             activeRoom === room &&
-            sessionKey
+            hasSessionKeyFor(room, passwordEl.value)
+    );
+}
+
+function createSessionKeyFingerprint(room, password) {
+    return `${room}\n${password}`;
+}
+
+function hasSessionKeyFor(room, password) {
+    return Boolean(
+        sessionKey &&
+            room &&
+            password &&
+            sessionKeyFingerprint === createSessionKeyFingerprint(room, password)
     );
 }
 
@@ -1065,8 +1119,13 @@ function setRoomStatus(text, state) {
 }
 
 function setTransferInfo(fileName, size, statusText) {
+    setTransferActivity(true);
     fileMetaEl.textContent = `${fileName} · ${formatBytes(size)}`;
     transferStatusEl.textContent = statusText;
+}
+
+function setTransferActivity(active) {
+    fileBottomPanelEl.classList.toggle("has-transfer", active);
 }
 
 function updateTransferQueueHint(transfer) {
@@ -1190,7 +1249,7 @@ function toggleTheme() {
 function updateThemeToggleButton() {
     const isDark = document.body.classList.contains("theme-dark");
     themeToggleBtn.setAttribute("aria-pressed", String(isDark));
-    themeToggleBtn.querySelector(".theme-switch-label").textContent = isDark ? "浅色模式" : "深色模式";
+    themeToggleBtn.querySelector(".theme-switch-label").textContent = isDark ? "深色模式" : "浅色模式";
 }
 
 function applyInvitePanelState() {
@@ -1227,6 +1286,7 @@ function updateTransferProgress(progress) {
 }
 
 function setTransferInfo(fileName, size, statusText) {
+    setTransferActivity(true);
     fileMetaEl.textContent = `${fileName} · ${formatBytes(size)}`;
     transferStatusEl.textContent = statusText;
     const inferredProgress = inferTransferProgress(statusText);
@@ -1308,12 +1368,12 @@ async function handleTextPayload(payload) {
 
 function handleFileStatus(message) {
     const statusText = describeTransferStatus(message.status, message.received_chunks, message.total_chunks);
-    const progress = message.total_chunks > 0
-        ? Math.round((message.received_chunks / message.total_chunks) * 100)
-        : 0;
-    updateTransferProgress(progress);
 
     if (activeOutgoingTransfer && activeOutgoingTransfer.transferId === message.transfer_id) {
+        const progress = message.total_chunks > 0
+            ? Math.round((message.received_chunks / message.total_chunks) * 100)
+            : 0;
+        updateTransferProgress(progress);
         setTransferInfo(activeOutgoingTransfer.metadata.fileName, activeOutgoingTransfer.metadata.size, statusText);
         updateTransferQueueHint(activeOutgoingTransfer);
         if (message.status === "completed") {
@@ -1324,11 +1384,16 @@ function handleFileStatus(message) {
 
     const transfer = incomingTransfers.get(message.transfer_id);
     if (transfer) {
+        const progress = message.total_chunks > 0
+            ? Math.round((message.received_chunks / message.total_chunks) * 100)
+            : 0;
+        updateTransferProgress(progress);
         setTransferInfo(transfer.metadata.fileName, transfer.totalSize, statusText);
         return;
     }
 
-    transferStatusEl.textContent = statusText;
+    setTransferActivity(true);
+    transferStatusEl.textContent = "收到文件状态，等待文件解密";
 }
 
 initializeInviteCredentials();
@@ -1336,6 +1401,7 @@ updateTransferProgress(0);
 initializeTheme();
 updateClipboardMeta();
 setClipboardSyncState("idle", "等待同步");
+setActiveMobileTab("file");
 connect();
 void refreshSessionKey();
 setClipboardSyncState("idle", "等待同步");

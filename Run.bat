@@ -20,14 +20,34 @@ echo   Sharing Board 正在检查运行环境...
 echo ========================================================
 echo.
 
-echo [1/3] 安装依赖...
-python -m pip install -r requirements.txt >nul 2>&1
-if %errorlevel% neq 0 (
-    echo    依赖安装失败，请确认 Python 已安装且可用。
+set "DEPS_HASH_FILE=.deps-installed.sha256"
+set "CURRENT_DEPS_HASH="
+set "INSTALLED_DEPS_HASH="
+set "NEED_DEPS=1"
+
+for /f "delims=" %%h in ('powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 'requirements.txt').Hash"') do set "CURRENT_DEPS_HASH=%%h"
+if "%CURRENT_DEPS_HASH%"=="" (
+    echo [1/3] 依赖清单读取失败，请确认 requirements.txt 存在。
     pause
     exit /b 1
-) else (
+)
+
+if exist "%DEPS_HASH_FILE%" set /p INSTALLED_DEPS_HASH=<"%DEPS_HASH_FILE%"
+if /I "%INSTALLED_DEPS_HASH%"=="%CURRENT_DEPS_HASH%" set "NEED_DEPS=0"
+
+echo [1/3] 检查依赖...
+if "%NEED_DEPS%"=="1" (
+    echo    requirements.txt 首次安装或已变化，正在安装依赖...
+    python -m pip install -r requirements.txt >nul 2>&1
+    if errorlevel 1 (
+        echo    依赖安装失败，请确认 Python 已安装且可用。
+        pause
+        exit /b 1
+    )
+    >"%DEPS_HASH_FILE%" echo %CURRENT_DEPS_HASH%
     echo    依赖安装完成。
+) else (
+    echo    依赖未变化，跳过安装。
 )
 
 set NEED_CERT=0
@@ -38,7 +58,7 @@ echo.
 if "%NEED_CERT%"=="1" (
     echo [2/3] 正在生成局域网 HTTPS 证书...
     python gen_cert.py
-    if %errorlevel% neq 0 (
+    if errorlevel 1 (
         echo    证书生成失败，请检查 Python 环境。
         pause
         exit /b 1

@@ -9,9 +9,12 @@
     --muted: #9499a0;
     --line: #e3e5e7;
     --shadow: 0 14px 32px rgba(24, 25, 28, 0.08);
+    --shadow-lg: 0 18px 44px rgba(24, 25, 28, 0.11);
+    --shadow-control: 0 8px 22px rgba(24, 25, 28, 0.08);
     --shadow-hover: 0 16px 28px rgba(24, 25, 28, 0.12);
     --radius-lg: 16px;
-    --radius-md: 12px;
+    --radius-md: 14px;
+    --radius-control: 14px;
     --radius-pill: 999px;
 }
 
@@ -43,7 +46,38 @@ body.theme-dark {
     --muted: #8f96a3;
     --line: #343841;
     --shadow: 0 14px 36px rgba(0, 0, 0, 0.26);
+    --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.34);
+    --shadow-control: 0 8px 24px rgba(0, 0, 0, 0.22);
     --shadow-hover: 0 16px 34px rgba(0, 0, 0, 0.32);
+}
+
+body.theme-dark .upload-box {
+    background: #1b1e24;
+    border-color: #3b414c;
+}
+
+body.theme-dark .upload-box:hover {
+    background: rgba(0, 161, 214, 0.08);
+}
+
+body.theme-dark .upload-icon {
+    background: rgba(0, 161, 214, 0.16);
+}
+
+body.theme-dark .upload-box:hover .upload-icon {
+    background: rgba(0, 161, 214, 0.22);
+}
+
+body.theme-dark .file-bottom-panel {
+    background: #1b1e24;
+}
+
+body.theme-dark .transfer-progress-shell {
+    background: #343841;
+}
+
+body.theme-dark .received-empty {
+    background: transparent;
 }
 
 .app-shell {
@@ -71,67 +105,40 @@ body.theme-dark {
 .hero-brand {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
 }
 
-.bili-tv-mark {
-    width: 62px;
-    height: 50px;
-    position: relative;
-    border: 2px solid var(--title);
-    border-radius: 16px;
-    background: linear-gradient(180deg, rgba(251, 114, 153, 0.12), rgba(0, 161, 214, 0.08));
+.app-logo {
+    width: 56px;
+    height: 56px;
+    flex: 0 0 auto;
+    color: var(--brand-pink);
 }
 
-.bili-tv-screen {
-    position: absolute;
-    inset: 12px 11px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, rgba(251, 114, 153, 0.18), rgba(0, 161, 214, 0.15));
+.app-logo svg {
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
-.bili-tv-screen::before,
-.bili-tv-screen::after {
-    content: "";
-    position: absolute;
-    top: 10px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--title);
+.app-logo rect {
+    fill: currentColor;
 }
 
-.bili-tv-screen::before {
-    left: 11px;
-}
-
-.bili-tv-screen::after {
-    right: 11px;
-}
-
-.bili-tv-antenna {
-    position: absolute;
-    top: -8px;
-    width: 14px;
-    height: 2px;
-    background: var(--title);
-    border-radius: var(--radius-pill);
-}
-
-.bili-tv-antenna.left {
-    left: 16px;
-    transform: rotate(-32deg);
-}
-
-.bili-tv-antenna.right {
-    right: 16px;
-    transform: rotate(32deg);
+.app-logo path {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 .hero-copy {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    justify-content: center;
+    min-height: 56px;
+    gap: 2px;
 }
 
 .eyebrow {
@@ -155,8 +162,24 @@ strong {
 }
 
 h1 {
-    font-size: clamp(2rem, 4vw, 3rem);
-    line-height: 1.04;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: clamp(2rem, 3vw, 2.35rem);
+    line-height: 1;
+    font-weight: 900;
+}
+
+.version-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 3px 9px;
+    border-radius: 8px;
+    background: rgba(0, 161, 214, 0.12);
+    color: var(--bili-blue);
+    font-size: 0.95rem;
+    line-height: 1;
     font-weight: 900;
 }
 
@@ -202,6 +225,7 @@ h2 {
     gap: 10px;
     padding: 10px 14px;
     border-radius: var(--radius-pill);
+    box-shadow: var(--shadow-control);
     cursor: pointer;
 }
 
@@ -394,12 +418,13 @@ body.theme-dark .theme-switch-thumb {
 textarea {
     width: 100%;
     border: 1px solid var(--line);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-control);
     background: var(--panel);
     color: var(--title);
     padding: 14px 16px;
     font-size: 1rem;
-    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    box-shadow: var(--shadow-control);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .field input::placeholder,
@@ -411,7 +436,7 @@ textarea::placeholder {
 textarea:focus {
     outline: none;
     border-color: var(--brand-pink);
-    box-shadow: 0 0 0 4px rgba(251, 114, 153, 0.12);
+    box-shadow: var(--shadow-control), 0 0 0 4px rgba(251, 114, 153, 0.12);
 }
 
 .password-wrap input {
@@ -501,8 +526,9 @@ textarea:focus {
 .received-empty,
 .received-file {
     border: 1px solid var(--line);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-control);
     background: var(--panel);
+    box-shadow: var(--shadow-control);
 }
 
 .invite-link-preview,
@@ -641,12 +667,13 @@ button,
     position: relative;
     overflow: hidden;
     border: 1px solid transparent;
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-control);
     padding: 12px 18px;
     font-size: 0.96rem;
     font-weight: 800;
     text-decoration: none;
     cursor: pointer;
+    box-shadow: var(--shadow-control);
     transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
@@ -684,6 +711,7 @@ button:not(.icon-btn):active::after,
     background: transparent;
     border-color: var(--brand-pink);
     color: var(--brand-pink);
+    box-shadow: none;
 }
 
 .download-link {
@@ -735,6 +763,7 @@ button:not(:disabled):not(.icon-btn):hover,
     border: 3px dashed #dfe3ea;
     border-radius: var(--radius-lg);
     background: #fff;
+    box-shadow: var(--shadow-control);
     text-align: center;
     cursor: pointer;
     transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
@@ -812,6 +841,12 @@ button:not(:disabled):not(.icon-btn):hover,
     padding: 18px;
     border-radius: calc(var(--radius-lg) - 2px);
     background: #f7f8fa;
+}
+
+.file-bottom-panel:not(.has-transfer) .transfer-status,
+.file-bottom-panel:not(.has-transfer) .transfer-progress-shell,
+.file-bottom-panel:not(.has-transfer) .transfer-progress-text {
+    display: none;
 }
 
 .transfer-status {
@@ -950,6 +985,10 @@ button:not(:disabled):not(.icon-btn):hover,
     transform: translate(-50%, -50%) scale(1);
 }
 
+.mobile-tabbar {
+    display: none;
+}
+
 @keyframes livePulse {
     0% {
         box-shadow: 0 0 0 0 rgba(251, 114, 153, 0.34);
@@ -999,13 +1038,159 @@ button:not(:disabled):not(.icon-btn):hover,
 }
 
 @media (max-width: 560px) {
+    body {
+        padding-bottom: calc(76px + env(safe-area-inset-bottom));
+        background: var(--bg);
+    }
+
     .app-shell {
-        width: min(100vw - 18px, 100%);
-        margin: 12px auto 18px;
+        width: 100%;
+        margin: 0;
+        padding: 10px 10px 0;
+        gap: 10px;
     }
 
     .panel {
+        padding: 14px;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .hero {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        flex-direction: row;
+        align-items: center;
+        margin: -10px -10px 0;
+        padding: 10px;
+        border-right: none;
+        border-left: none;
+        border-radius: 0 0 16px 16px;
+        box-shadow: var(--shadow-lg);
+    }
+
+    .hero-brand {
+        min-width: 0;
+        gap: 10px;
+    }
+
+    .app-logo {
+        width: 44px;
+        height: 44px;
+    }
+
+    .hero-copy {
+        min-width: 0;
+        min-height: 44px;
+        gap: 1px;
+    }
+
+    .eyebrow {
+        font-size: 0.68rem;
+        letter-spacing: 0.08em;
+    }
+
+    h1 {
+        gap: 6px;
+        font-size: 1.18rem;
+        white-space: nowrap;
+    }
+
+    .version-badge {
+        min-height: 20px;
+        padding: 2px 6px;
+        border-radius: 7px;
+        font-size: 0.7rem;
+    }
+
+    .hero-tools {
+        flex: 1;
+        min-width: 0;
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .theme-switch {
+        width: 46px;
+        height: 32px;
+        padding: 4px;
+        justify-content: center;
+    }
+
+    .theme-switch-track {
+        width: 34px;
+        height: 20px;
+    }
+
+    .theme-switch-thumb {
+        width: 14px;
+        height: 14px;
+    }
+
+    body.theme-dark .theme-switch-thumb {
+        transform: translateX(14px);
+    }
+
+    .theme-switch-label {
+        display: none;
+    }
+
+    .status-summary {
+        min-width: 0;
+        max-width: 170px;
+        flex: 1;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 12px;
+    }
+
+    .live-badge {
+        padding: 0;
+        background: transparent;
+        font-size: 0;
+    }
+
+    .live-badge .status-indicator {
+        width: 9px;
+        height: 9px;
+    }
+
+    .status-copy {
+        min-width: 0;
+    }
+
+    .status-copy strong,
+    .status-copy span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .status-copy strong {
+        font-size: 0.82rem;
+    }
+
+    .status-copy span {
+        font-size: 0.76rem;
+    }
+
+    .content-grid {
+        display: contents;
+    }
+
+    body[data-mobile-tab="text"] [data-mobile-panel]:not([data-mobile-panel="text"]),
+    body[data-mobile-tab="file"] [data-mobile-panel]:not([data-mobile-panel="file"]),
+    body[data-mobile-tab="connect"] [data-mobile-panel]:not([data-mobile-panel="connect"]) {
+        display: none;
+    }
+
+    .card {
         padding: 16px;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
     }
 
     .field {
@@ -1026,12 +1211,132 @@ button:not(:disabled):not(.icon-btn):hover,
         align-items: stretch;
     }
 
+    .invite-panel-config,
+    .invite-panel-body {
+        gap: 12px;
+    }
+
+    .invite-panel:not(.collapsed) .invite-panel-body {
+        display: contents;
+    }
+
+    .invite-panel-head {
+        order: 1;
+    }
+
+    .qr-panel {
+        order: 2;
+    }
+
+    .invite-panel-config {
+        order: 3;
+    }
+
+    .invite-copy {
+        order: 4;
+    }
+
+    .invite-panel-toggle {
+        width: 100%;
+    }
+
+    .invite-qr {
+        width: min(100%, 220px);
+    }
+
+    .card-head {
+        align-items: center;
+    }
+
     textarea {
-        min-height: 260px;
+        min-height: min(42vh, 360px);
+    }
+
+    .upload-box {
+        min-height: 190px;
+        gap: 10px;
+        padding: 22px 16px;
+        border-width: 2px;
+    }
+
+    .upload-icon {
+        width: 78px;
+        height: 78px;
+    }
+
+    .upload-icon svg {
+        width: 38px;
+        height: 38px;
+    }
+
+    .file-bottom-panel {
+        padding: 14px;
     }
 
     .received-file {
-        flex-direction: column;
-        align-items: stretch;
+        align-items: center;
+    }
+
+    .footnote {
+        padding-bottom: 14px;
+    }
+
+    .mobile-tabbar {
+        position: fixed;
+        right: 10px;
+        bottom: calc(10px + env(safe-area-inset-bottom));
+        left: 10px;
+        z-index: 50;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: var(--shadow-lg);
+        backdrop-filter: blur(18px);
+    }
+
+    body.theme-dark .mobile-tabbar {
+        background: rgba(32, 35, 41, 0.94);
+    }
+
+    .mobile-tabbar button {
+        display: grid;
+        place-items: center;
+        gap: 4px;
+        min-height: 54px;
+        padding: 6px 8px;
+        border: none;
+        border-radius: var(--radius-control);
+        background: transparent;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        box-shadow: none;
+    }
+
+    .mobile-tabbar [data-mobile-tab] {
+        border-radius: var(--radius-control);
+    }
+
+    .mobile-tabbar button::after {
+        content: none;
+    }
+
+    .mobile-tabbar button.active {
+        background: rgba(0, 161, 214, 0.1);
+        color: var(--bili-blue);
+    }
+
+    .mobile-tabbar svg {
+        width: 22px;
+        height: 22px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
     }
 }
