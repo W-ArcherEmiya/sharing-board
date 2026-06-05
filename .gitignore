@@ -12,3 +12,6 @@ tests/__pycache__/
 # 忽略临时导出文件
 tmp_pdf_pages/
 tmp_pdf_pages_hi/
+
+# 忽略本机启动缓存
+.deps-installed.sha256

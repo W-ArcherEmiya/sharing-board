@@ -10,14 +10,18 @@
     <main class="app-shell">
         <section class="panel hero">
             <div class="hero-brand">
-                <div class="bili-tv-mark" aria-hidden="true">
-                    <span class="bili-tv-screen"></span>
-                    <span class="bili-tv-antenna left"></span>
-                    <span class="bili-tv-antenna right"></span>
+                <div class="app-logo" aria-hidden="true">
+                    <svg viewBox="0 0 48 48" focusable="false">
+                        <rect x="4" y="4" width="40" height="40" rx="10"></rect>
+                        <path d="M15 11h12l7 7v19H15z"></path>
+                        <path d="M27 11v8h7"></path>
+                        <path d="M20 27h10"></path>
+                        <path d="M20 33h7"></path>
+                    </svg>
                 </div>
                 <div class="hero-copy">
+                    <h1>安全剪贴板 <span class="version-badge">V1.4.3</span></h1>
                     <p class="eyebrow">SECURE CLIPBOARD</p>
-                    <h1>安全剪贴板</h1>
                 </div>
             </div>
 
@@ -26,7 +30,7 @@
                     <span class="theme-switch-track">
                         <span class="theme-switch-thumb"></span>
                     </span>
-                    <span class="theme-switch-label">深色模式</span>
+                    <span class="theme-switch-label">浅色模式</span>
                 </button>
 
                 <div id="status-summary" class="status-summary disconnected">
@@ -39,7 +43,7 @@
             </div>
         </section>
 
-        <section id="invite-panel" class="panel invite-panel collapsed">
+        <section id="invite-panel" class="panel invite-panel collapsed" data-mobile-panel="connect">
             <div class="invite-panel-head">
                 <div>
                     <p class="eyebrow">QUICK JOIN</p>
@@ -64,7 +68,6 @@
 
             <div class="invite-panel-body">
                 <div class="invite-copy">
-                    <p class="subtitle invite-subtitle">主设备会把地址和密码组合成邀请信息；其他设备可扫码接入，也可手动输入房间号和密码。</p>
                     <div class="actions invite-actions">
                         <button id="copy-invite-btn" type="button">复制邀请链接</button>
                         <button id="regen-invite-btn" type="button" class="secondary">重置房间密码</button>
@@ -73,13 +76,12 @@
                 </div>
                 <div class="qr-panel">
                     <div id="invite-qr" class="invite-qr" aria-label="共享接入二维码"></div>
-                    <p class="qr-note">不能扫码的设备仍可手动输入房间号和密码加入。</p>
                 </div>
             </div>
         </section>
 
         <section class="panel content-grid">
-            <div class="card text-card">
+            <div class="card text-card" data-mobile-panel="text">
                 <div class="card-head">
                     <h2>文字同步</h2>
                     <span class="hint">支持自动加密同步</span>
@@ -97,7 +99,7 @@
                 </div>
             </div>
 
-            <div class="card file-card">
+            <div class="card file-card" data-mobile-panel="file">
                 <div class="card-head">
                     <h2>文件传输</h2>
                     <span class="hint">支持断点续传</span>
@@ -129,13 +131,42 @@
             </div>
         </section>
 
-        <section class="panel footnote">
-            <p>提示：房间号用于隔离会话，密码用于派生加密密钥；两者都需要一致。</p>
+        <section class="panel footnote" data-mobile-panel="connect">
+            <p>同一房间号和密码的设备会自动同步。</p>
             <div id="log" class="log-msg"></div>
         </section>
     </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <nav class="mobile-tabbar" aria-label="移动端功能切换">
+        <button type="button" data-mobile-tab="text" aria-label="文字同步">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 5h14"></path>
+                <path d="M5 12h14"></path>
+                <path d="M5 19h9"></path>
+            </svg>
+            <span>文字</span>
+        </button>
+        <button type="button" data-mobile-tab="file" aria-label="文件传输">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M6 3h8l4 4v14H6z"></path>
+                <path d="M14 3v5h5"></path>
+            </svg>
+            <span>文件</span>
+        </button>
+        <button type="button" data-mobile-tab="connect" aria-label="连接设备">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4 4h6v6H4z"></path>
+                <path d="M14 4h6v6h-6z"></path>
+                <path d="M4 14h6v6H4z"></path>
+                <path d="M15 15h2"></path>
+                <path d="M19 15h1"></path>
+                <path d="M15 19h5"></path>
+            </svg>
+            <span>连接</span>
+        </button>
+    </nav>
 
     <script src="/static/script.js?v={{ asset_version }}"></script>
 </body>

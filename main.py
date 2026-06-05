@@ -310,9 +310,9 @@ manager = ConnectionManager()
 @app.get("/", response_class=HTMLResponse)
 async def get_index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "asset_version": ASSET_VERSION,
         },
     )
