@@ -72,12 +72,8 @@ body.theme-dark .file-bottom-panel {
     background: #1b1e24;
 }
 
-body.theme-dark .transfer-progress-shell {
+body.theme-dark .file-item-progress-track {
     background: #343841;
-}
-
-body.theme-dark .received-empty {
-    background: transparent;
 }
 
 .app-shell {
@@ -194,12 +190,9 @@ h2 {
 .footnote p,
 .log-msg,
 .invite-link-preview,
-.file-meta,
-.transfer-status,
 .received-file span,
-.received-empty,
-.char-count,
-.transfer-progress-text {
+.file-item-progress-text,
+.char-count {
     color: var(--muted);
 }
 
@@ -521,9 +514,6 @@ textarea:focus {
 }
 
 .invite-link-preview,
-.file-meta,
-.transfer-status,
-.received-empty,
 .received-file {
     border: 1px solid var(--line);
     border-radius: var(--radius-control);
@@ -531,9 +521,7 @@ textarea:focus {
     box-shadow: var(--shadow-control);
 }
 
-.invite-link-preview,
-.file-meta,
-.transfer-status {
+.invite-link-preview {
     padding: 12px 14px;
 }
 
@@ -624,8 +612,7 @@ textarea {
 }
 
 .sync-pill,
-.char-count,
-.transfer-progress-text {
+.char-count {
     font-size: 0.84rem;
     font-weight: 700;
 }
@@ -830,11 +817,6 @@ button:not(:disabled):not(.icon-btn):hover,
     background: rgba(0, 161, 214, 0.05);
 }
 
-.transfer-meta {
-    display: grid;
-    gap: 10px;
-}
-
 .file-bottom-panel {
     display: grid;
     gap: 12px;
@@ -843,34 +825,8 @@ button:not(:disabled):not(.icon-btn):hover,
     background: #f7f8fa;
 }
 
-.file-bottom-panel:not(.has-transfer) .transfer-status,
-.file-bottom-panel:not(.has-transfer) .transfer-progress-shell,
-.file-bottom-panel:not(.has-transfer) .transfer-progress-text {
+.file-bottom-panel:not(.has-transfer):not(.has-received-files) {
     display: none;
-}
-
-.transfer-status {
-    min-height: 48px;
-    font-weight: 700;
-}
-
-.transfer-progress-shell {
-    height: 8px;
-    overflow: hidden;
-    border-radius: var(--radius-pill);
-    background: #e4e7ed;
-}
-
-.transfer-progress-bar {
-    width: 0;
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, var(--brand-pink), #ff97b5);
-    transition: width 0.16s ease;
-}
-
-.transfer-progress-shell.complete .transfer-progress-bar {
-    animation: progressPop 0.32s ease;
 }
 
 .received-files {
@@ -879,27 +835,24 @@ button:not(:disabled):not(.icon-btn):hover,
     gap: 10px;
 }
 
-.received-empty {
-    position: relative;
-    padding: 18px 16px 14px;
-    text-align: center;
-    background: transparent;
-    border: none;
-}
-
-.received-empty::before {
+.received-files:empty {
     display: none;
 }
 
 .received-file {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    display: grid;
     gap: 12px;
     padding: 12px 14px;
 }
 
-.received-file > div {
+.received-file-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.received-file-info {
     min-width: 0;
 }
 
@@ -907,6 +860,46 @@ button:not(:disabled):not(.icon-btn):hover,
     display: block;
     font-size: 0.95rem;
     overflow-wrap: anywhere;
+}
+
+.received-file-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 34px;
+}
+
+.file-item-progress {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: center;
+    gap: 10px;
+}
+
+.file-item-progress-track {
+    height: 6px;
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    background: #e4e7ed;
+}
+
+.file-item-progress-bar {
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--brand-pink), #ff97b5);
+    transition: width 0.16s ease;
+}
+
+.file-item-progress-text {
+    text-align: right;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.received-file.download-ready .file-item-progress,
+.received-file.sent .file-item-progress {
+    display: none;
 }
 
 .received-file .download-link {

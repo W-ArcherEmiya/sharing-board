@@ -21,6 +21,7 @@ let invitePanelManualState = null;
 
 const incomingTransfers = new Map();
 const receivedDownloads = new Map();
+const transferItems = new Map();
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -36,8 +37,6 @@ const copyBtn = document.getElementById("copy-btn");
 const clearBtn = document.getElementById("clear-btn");
 const fileInputEl = document.getElementById("file-input");
 const uploadBoxEl = fileInputEl.closest(".upload-box");
-const fileMetaEl = document.getElementById("file-meta");
-const transferStatusEl = document.getElementById("transfer-status");
 const fileBottomPanelEl = document.querySelector(".file-bottom-panel");
 const receivedFilesEl = document.getElementById("received-files");
 const copyInviteBtn = document.getElementById("copy-invite-btn");
@@ -48,8 +47,6 @@ const invitePanelEl = document.getElementById("invite-panel");
 const toggleInvitePanelBtn = document.getElementById("toggle-invite-panel-btn");
 const clipboardSyncStatusEl = document.getElementById("clipboard-sync-status");
 const clipboardCountEl = document.getElementById("clipboard-count");
-const transferProgressBarEl = document.getElementById("transfer-progress-bar");
-const transferProgressTextEl = document.getElementById("transfer-progress-text");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
 const toastEl = document.getElementById("toast");
 const mobileTabButtons = Array.from(document.querySelectorAll("[data-mobile-tab]"));
@@ -526,6 +523,9 @@ async function enqueueFiles(files) {
         return;
     }
 
+    validFiles.forEach((transfer) => {
+        updateTransferItemProgress(transfer.transferId, transfer.metadata.fileName, transfer.metadata.size, 0);
+    });
     outgoingTransferQueue = outgoingTransferQueue.concat(validFiles);
 
     if (skippedCount) {
@@ -816,7 +816,7 @@ async function handleFileManifest(message) {
             completed: false,
         });
 
-        setTransferInfo(metadata.fileName, metadata.size, "已收到文件描述，等待分片");
+        updateTransferItemProgress(message.transfer_id, metadata.fileName, metadata.size, 0);
     } catch (error) {
         console.error(error);
         pendingEncryptedMessages.push(message);
@@ -848,11 +848,7 @@ async function handleFileChunk(message) {
         transfer.chunks[message.index] = await decryptBase64Envelope(message.iv, message.data);
         transfer.receivedChunks += 1;
         const progress = Math.round((transfer.receivedChunks / transfer.totalChunks) * 100);
-        setTransferInfo(
-            transfer.metadata.fileName,
-            transfer.totalSize,
-            `正在接收 ${progress}%`
-        );
+        updateTransferItemProgress(message.transfer_id, transfer.metadata.fileName, transfer.totalSize, progress);
 
         if (transfer.receivedChunks === transfer.totalChunks) {
             const blob = new Blob(transfer.chunks, {
@@ -861,7 +857,7 @@ async function handleFileChunk(message) {
             transfer.completed = true;
             transfer.chunks = [];
             addDownloadableFile(message.transfer_id, transfer.metadata.fileName, blob, transfer.totalSize);
-            setTransferInfo(transfer.metadata.fileName, transfer.totalSize, "文件已组装完成，可立即下载");
+            hideTransferSummary();
             logEl.textContent = "文件已解密并组装完成";
         }
     } catch (error) {
@@ -876,34 +872,42 @@ function handleFileStatus(message) {
     const statusText = describeTransferStatus(message.status, message.received_chunks, message.total_chunks);
 
     if (activeOutgoingTransfer && activeOutgoingTransfer.transferId === message.transfer_id) {
+        if (message.status === "completed") {
+            void markOutgoingTransferComplete(activeOutgoingTransfer);
+            return;
+        }
         const progress = message.total_chunks > 0
             ? Math.round((message.received_chunks / message.total_chunks) * 100)
             : 0;
-        updateTransferProgress(progress);
-        setTransferInfo(
+        updateTransferItemProgress(
+            activeOutgoingTransfer.transferId,
             activeOutgoingTransfer.metadata.fileName,
             activeOutgoingTransfer.metadata.size,
-            statusText
+            progress
         );
         updateTransferQueueHint(activeOutgoingTransfer);
-        if (message.status === "completed") {
-            void markOutgoingTransferComplete(activeOutgoingTransfer);
-        }
         return;
     }
 
     const transfer = incomingTransfers.get(message.transfer_id);
     if (transfer) {
+        if (message.status === "completed") {
+            hideTransferSummary();
+            return;
+        }
         const progress = message.total_chunks > 0
             ? Math.round((message.received_chunks / message.total_chunks) * 100)
             : 0;
-        updateTransferProgress(progress);
-        setTransferInfo(transfer.metadata.fileName, transfer.totalSize, statusText);
+        updateTransferItemProgress(message.transfer_id, transfer.metadata.fileName, transfer.totalSize, progress);
         return;
     }
 
-    setTransferActivity(true);
-    transferStatusEl.textContent = "收到文件状态，等待文件解密";
+    if (message.status === "completed") {
+        hideTransferSummary();
+        return;
+    }
+
+    logEl.textContent = "收到文件状态，等待文件描述解密";
 }
 
 async function markOutgoingTransferComplete(transfer) {
@@ -914,22 +918,15 @@ async function markOutgoingTransferComplete(transfer) {
     transfer.completed = true;
     transfer.dispatchToken += 1;
     logEl.textContent = `${transfer.metadata.fileName} 传输完成`;
+    markTransferItemSent(transfer.transferId, transfer.metadata.fileName, transfer.metadata.size);
     activeOutgoingTransfer = null;
 
     if (outgoingTransferQueue.length) {
-        const nextTransfer = outgoingTransferQueue[0];
-        setTransferInfo(
-            transfer.metadata.fileName,
-            transfer.metadata.size,
-            `当前文件完成，准备发送下一个（剩余 ${outgoingTransferQueue.length} 个）`
-        );
-        await nextFrame();
-        setTransferInfo(nextTransfer.metadata.fileName, nextTransfer.metadata.size, "准备加密并启动传输");
         await startNextQueuedTransfer();
         return;
     }
 
-    setTransferInfo(transfer.metadata.fileName, transfer.metadata.size, "批量传输完成");
+    hideTransferSummary();
 }
 
 async function encryptBytes(bytes) {
@@ -986,15 +983,10 @@ function addDownloadableFile(transferId, fileName, blob, size) {
     removeDownloadableFile(transferId);
 
     const url = URL.createObjectURL(blob);
-    const item = document.createElement("div");
-    item.className = "received-file";
-
-    const info = document.createElement("div");
-    const title = document.createElement("strong");
-    title.textContent = fileName;
-    const meta = document.createElement("span");
-    meta.textContent = `${formatBytes(size)} · 当前会话已接收`;
-    info.append(title, meta);
+    const entry = ensureTransferItem(transferId, fileName, size);
+    entry.element.classList.add("download-ready");
+    entry.meta.textContent = formatBytes(size);
+    entry.actions.replaceChildren();
 
     const link = document.createElement("a");
     link.className = "download-link";
@@ -1009,16 +1001,14 @@ function addDownloadableFile(transferId, fileName, blob, size) {
         </svg>
     `;
     link.addEventListener("click", () => {
-        item.classList.add("downloaded");
-        meta.textContent = `${formatBytes(size)} · 已下载`;
-        setTransferInfo(fileName, size, "已下载");
+        entry.element.classList.add("downloaded");
+        hideTransferSummary();
         logEl.textContent = `${fileName} 已下载`;
     });
 
-    item.append(info, link);
-    ensureReceivedFilesReady();
-    receivedFilesEl.prepend(item);
-    receivedDownloads.set(transferId, { url, element: item });
+    entry.actions.append(link);
+    receivedDownloads.set(transferId, { url, element: entry.element });
+    updateReceivedFilesVisibility();
 }
 
 function removeDownloadableFile(transferId) {
@@ -1028,32 +1018,97 @@ function removeDownloadableFile(transferId) {
     }
 
     URL.revokeObjectURL(existing.url);
-    existing.element.remove();
     receivedDownloads.delete(transferId);
-    ensureReceivedFilesReady();
+    removeTransferItem(transferId);
 }
 
-function ensureReceivedFilesReady() {
-    const empty = receivedFilesEl.querySelector(".received-empty");
-    if (receivedDownloads.size === 0) {
-        if (!empty) {
-            const placeholder = document.createElement("div");
-            placeholder.className = "received-empty";
-            placeholder.textContent = "暂无已接收文件";
-            receivedFilesEl.append(placeholder);
+function ensureTransferItem(transferId, fileName, size) {
+    const existing = transferItems.get(transferId);
+    if (existing) {
+        existing.title.textContent = fileName;
+        existing.meta.textContent = formatBytes(size);
+        return existing;
+    }
+
+    const item = document.createElement("div");
+    item.className = "received-file transfer-item";
+
+    const main = document.createElement("div");
+    main.className = "received-file-main";
+
+    const info = document.createElement("div");
+    info.className = "received-file-info";
+    const title = document.createElement("strong");
+    title.textContent = fileName;
+    const meta = document.createElement("span");
+    meta.textContent = formatBytes(size);
+    info.append(title, meta);
+
+    const actions = document.createElement("div");
+    actions.className = "received-file-actions";
+    main.append(info, actions);
+
+    const progress = document.createElement("div");
+    progress.className = "file-item-progress";
+    const progressTrack = document.createElement("div");
+    progressTrack.className = "file-item-progress-track";
+    const progressBar = document.createElement("div");
+    progressBar.className = "file-item-progress-bar";
+    progressTrack.append(progressBar);
+    const progressText = document.createElement("span");
+    progressText.className = "file-item-progress-text";
+    progressText.textContent = "0%";
+    progress.append(progressTrack, progressText);
+
+    item.append(main, progress);
+    receivedFilesEl.prepend(item);
+
+    const entry = { element: item, title, meta, actions, progressBar, progressText };
+    transferItems.set(transferId, entry);
+    updateReceivedFilesVisibility();
+    return entry;
+}
+
+function updateTransferItemProgress(transferId, fileName, size, progress) {
+    const entry = ensureTransferItem(transferId, fileName, size);
+    const nextProgress = Math.max(0, Math.min(100, Math.round(progress)));
+    entry.progressBar.style.width = `${nextProgress}%`;
+    entry.progressText.textContent = `${nextProgress}%`;
+    entry.element.classList.toggle("complete", nextProgress >= 100);
+}
+
+function updateMatchingTransferItem(fileName, size, progress) {
+    for (const [transferId, entry] of transferItems.entries()) {
+        if (entry.title.textContent === fileName && entry.meta.textContent === formatBytes(size)) {
+            updateTransferItemProgress(transferId, fileName, size, progress);
+            return true;
         }
+    }
+
+    return false;
+}
+
+function markTransferItemSent(transferId, fileName, size) {
+    const entry = ensureTransferItem(transferId, fileName, size);
+    updateTransferItemProgress(transferId, fileName, size, 100);
+    entry.element.classList.add("sent");
+    entry.actions.replaceChildren();
+    updateReceivedFilesVisibility();
+}
+
+function removeTransferItem(transferId) {
+    const existing = transferItems.get(transferId);
+    if (!existing) {
         return;
     }
 
-    if (empty) {
-        empty.remove();
-    }
+    existing.element.remove();
+    transferItems.delete(transferId);
+    updateReceivedFilesVisibility();
 }
 
 function resetSharedState() {
     clipboardEl.value = "";
-    fileMetaEl.textContent = "暂无共享文件";
-    transferStatusEl.textContent = "等待传输";
     setTransferActivity(false);
     incomingTransfers.clear();
 
@@ -1062,11 +1117,14 @@ function resetSharedState() {
         element.remove();
     }
     receivedDownloads.clear();
-    ensureReceivedFilesReady();
+    for (const { element } of transferItems.values()) {
+        element.remove();
+    }
+    transferItems.clear();
+    updateReceivedFilesVisibility();
 
     setClipboardSyncState("idle", "等待同步");
     updateClipboardMeta();
-    updateTransferProgress(0);
     updateControls();
 }
 
@@ -1119,25 +1177,38 @@ function setRoomStatus(text, state) {
 }
 
 function setTransferInfo(fileName, size, statusText) {
-    setTransferActivity(true);
-    fileMetaEl.textContent = `${fileName} · ${formatBytes(size)}`;
-    transferStatusEl.textContent = statusText;
+    const progress = inferTransferProgress(statusText);
+    if (progress === null) {
+        return;
+    }
+
+    if (activeOutgoingTransfer) {
+        updateTransferItemProgress(
+            activeOutgoingTransfer.transferId,
+            activeOutgoingTransfer.metadata.fileName,
+            activeOutgoingTransfer.metadata.size,
+            progress
+        );
+        return;
+    }
+
+    updateMatchingTransferItem(fileName, size, progress);
 }
 
 function setTransferActivity(active) {
     fileBottomPanelEl.classList.toggle("has-transfer", active);
 }
 
+function updateReceivedFilesVisibility() {
+    fileBottomPanelEl.classList.toggle("has-received-files", transferItems.size > 0);
+}
+
+function hideTransferSummary() {
+    setTransferActivity(false);
+}
+
 function updateTransferQueueHint(transfer) {
-    if (activeOutgoingTransfer !== transfer) {
-        return;
-    }
-
-    if (!outgoingTransferQueue.length) {
-        return;
-    }
-
-    transferStatusEl.textContent = `${transferStatusEl.textContent} · 队列剩余 ${outgoingTransferQueue.length} 个`;
+    return transfer;
 }
 
 function describeTransferStatus(status, receivedChunks, totalChunks) {
@@ -1272,27 +1343,39 @@ function inferTransferProgress(statusText) {
     if (/完成|下载|可立即/.test(statusText)) {
         return 100;
     }
-    if (/等待|准备|确认|初始化|中断|断开/.test(statusText)) {
-        return 0;
-    }
     return null;
 }
 
 function updateTransferProgress(progress) {
-    const nextProgress = Math.max(0, Math.min(100, Math.round(progress)));
-    transferProgressBarEl.style.width = `${nextProgress}%`;
-    transferProgressTextEl.textContent = `${nextProgress}%`;
-    transferProgressBarEl.parentElement.classList.toggle("complete", nextProgress >= 100);
+    if (!activeOutgoingTransfer) {
+        return;
+    }
+
+    updateTransferItemProgress(
+        activeOutgoingTransfer.transferId,
+        activeOutgoingTransfer.metadata.fileName,
+        activeOutgoingTransfer.metadata.size,
+        progress
+    );
 }
 
 function setTransferInfo(fileName, size, statusText) {
-    setTransferActivity(true);
-    fileMetaEl.textContent = `${fileName} · ${formatBytes(size)}`;
-    transferStatusEl.textContent = statusText;
     const inferredProgress = inferTransferProgress(statusText);
-    if (inferredProgress !== null) {
-        updateTransferProgress(inferredProgress);
+    if (inferredProgress === null) {
+        return;
     }
+
+    if (activeOutgoingTransfer) {
+        updateTransferItemProgress(
+            activeOutgoingTransfer.transferId,
+            activeOutgoingTransfer.metadata.fileName,
+            activeOutgoingTransfer.metadata.size,
+            inferredProgress
+        );
+        return;
+    }
+
+    updateMatchingTransferItem(fileName, size, inferredProgress);
 }
 
 function setRoomStatus(text, state) {
@@ -1370,34 +1453,45 @@ function handleFileStatus(message) {
     const statusText = describeTransferStatus(message.status, message.received_chunks, message.total_chunks);
 
     if (activeOutgoingTransfer && activeOutgoingTransfer.transferId === message.transfer_id) {
+        if (message.status === "completed") {
+            void markOutgoingTransferComplete(activeOutgoingTransfer);
+            return;
+        }
         const progress = message.total_chunks > 0
             ? Math.round((message.received_chunks / message.total_chunks) * 100)
             : 0;
-        updateTransferProgress(progress);
-        setTransferInfo(activeOutgoingTransfer.metadata.fileName, activeOutgoingTransfer.metadata.size, statusText);
+        updateTransferItemProgress(
+            activeOutgoingTransfer.transferId,
+            activeOutgoingTransfer.metadata.fileName,
+            activeOutgoingTransfer.metadata.size,
+            progress
+        );
         updateTransferQueueHint(activeOutgoingTransfer);
-        if (message.status === "completed") {
-            void markOutgoingTransferComplete(activeOutgoingTransfer);
-        }
         return;
     }
 
     const transfer = incomingTransfers.get(message.transfer_id);
     if (transfer) {
+        if (message.status === "completed") {
+            hideTransferSummary();
+            return;
+        }
         const progress = message.total_chunks > 0
             ? Math.round((message.received_chunks / message.total_chunks) * 100)
             : 0;
-        updateTransferProgress(progress);
-        setTransferInfo(transfer.metadata.fileName, transfer.totalSize, statusText);
+        updateTransferItemProgress(message.transfer_id, transfer.metadata.fileName, transfer.totalSize, progress);
         return;
     }
 
-    setTransferActivity(true);
-    transferStatusEl.textContent = "收到文件状态，等待文件解密";
+    if (message.status === "completed") {
+        hideTransferSummary();
+        return;
+    }
+
+    logEl.textContent = "收到文件状态，等待文件描述解密";
 }
 
 initializeInviteCredentials();
-updateTransferProgress(0);
 initializeTheme();
 updateClipboardMeta();
 setClipboardSyncState("idle", "等待同步");
