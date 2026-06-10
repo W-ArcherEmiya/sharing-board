@@ -943,6 +943,11 @@ button:not(:disabled):not(.icon-btn):hover,
     box-shadow: none;
 }
 
+.received-file.downloaded .received-file-info span {
+    color: var(--bili-blue);
+    font-weight: 800;
+}
+
 .footnote {
     display: flex;
     justify-content: space-between;

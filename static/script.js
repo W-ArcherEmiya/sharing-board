@@ -1002,6 +1002,7 @@ function addDownloadableFile(transferId, fileName, blob, size) {
     `;
     link.addEventListener("click", () => {
         entry.element.classList.add("downloaded");
+        entry.meta.textContent = `${formatBytes(size)} · 已下载`;
         hideTransferSummary();
         logEl.textContent = `${fileName} 已下载`;
     });
