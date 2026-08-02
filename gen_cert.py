@@ -1,12 +1,17 @@
 import datetime
 import ipaddress
 import socket
+import sys
+from pathlib import Path
 from typing import List, Union
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import ExtensionOID
 from cryptography.x509.oid import NameOID
+
+import launch_config
 
 
 IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
@@ -17,6 +22,11 @@ def discover_ip_addresses() -> List[IPAddress]:
         ipaddress.ip_address("127.0.0.1"),
         ipaddress.ip_address("::1"),
     }
+
+    for candidate in launch_config.windows_ip_candidates():
+        parsed = launch_config.parse_ipv4(candidate.get("ip", ""))
+        if parsed and launch_config.is_usable_ipv4(parsed):
+            candidates.add(parsed)
 
     hostname = socket.gethostname()
     try:
@@ -35,6 +45,31 @@ def discover_ip_addresses() -> List[IPAddress]:
         pass
 
     return sorted(candidates, key=lambda item: (item.version, str(item)))
+
+
+def certificate_covers_host(host: str, cert_path: str = "cert.pem") -> bool:
+    path = Path(cert_path)
+    if not path.exists():
+        return False
+
+    try:
+        cert = x509.load_pem_x509_certificate(path.read_bytes())
+        if cert.not_valid_after_utc <= datetime.datetime.now(datetime.timezone.utc):
+            return False
+        san = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value
+    except Exception:
+        return False
+
+    host = host.strip()
+    if not host:
+        return False
+
+    try:
+        parsed_ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host in san.get_values_for_type(x509.DNSName)
+
+    return parsed_ip in san.get_values_for_type(x509.IPAddress)
 
 
 def build_subject_alt_names() -> x509.SubjectAlternativeName:
@@ -94,4 +129,6 @@ def generate_self_signed_cert() -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--covers":
+        raise SystemExit(0 if certificate_covers_host(sys.argv[2]) else 1)
     generate_self_signed_cert()

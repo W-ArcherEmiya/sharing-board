@@ -3,7 +3,22 @@ setlocal
 chcp 65001 >nul
 title Sharing Board Launcher
 
-for /f "tokens=1,2,3 delims=|" %%a in ('python launch_config.py') do (
+set "PYTHON_CMD="
+py -3 --version >nul 2>&1
+if not errorlevel 1 set "PYTHON_CMD=py -3"
+
+if "%PYTHON_CMD%"=="" (
+    python --version >nul 2>&1
+    if not errorlevel 1 set "PYTHON_CMD=python"
+)
+
+if "%PYTHON_CMD%"=="" (
+    echo 未找到 Python，请先安装 Python 3.10 或更高版本。
+    pause
+    exit /b 1
+)
+
+for /f "tokens=1,2,3 delims=|" %%a in ('%PYTHON_CMD% launch_config.py') do (
     set HOST_IP=%%a
     set ROOM_CODE=%%b
     set ROOM_PASSWORD=%%c
@@ -38,7 +53,7 @@ if /I "%INSTALLED_DEPS_HASH%"=="%CURRENT_DEPS_HASH%" set "NEED_DEPS=0"
 echo [1/3] 检查依赖...
 if "%NEED_DEPS%"=="1" (
     echo    requirements.txt 首次安装或已变化，正在安装依赖...
-    python -m pip install -r requirements.txt >nul 2>&1
+    %PYTHON_CMD% -m pip install -r requirements.txt >nul 2>&1
     if errorlevel 1 (
         echo    依赖安装失败，请确认 Python 已安装且可用。
         pause
@@ -53,19 +68,23 @@ if "%NEED_DEPS%"=="1" (
 set NEED_CERT=0
 if not exist key.pem set NEED_CERT=1
 if not exist cert.pem set NEED_CERT=1
+if "%NEED_CERT%"=="0" (
+    %PYTHON_CMD% gen_cert.py --covers "%HOST_IP%" >nul 2>&1
+    if errorlevel 1 set NEED_CERT=1
+)
 
 echo.
 if "%NEED_CERT%"=="1" (
-    echo [2/3] 正在生成局域网 HTTPS 证书...
-    python gen_cert.py
+    echo [2/3] 正在生成或更新局域网 HTTPS 证书...
+    %PYTHON_CMD% gen_cert.py
     if errorlevel 1 (
         echo    证书生成失败，请检查 Python 环境。
         pause
         exit /b 1
     )
-    echo    证书已生成。
+    echo    证书已就绪。
 ) else (
-    echo [2/3] 已检测到现有证书，跳过生成。
+    echo [2/3] 证书已覆盖当前访问地址，跳过生成。
 )
 
 echo.
@@ -78,8 +97,8 @@ ipconfig | findstr "IPv4"
 echo ========================================================
 echo.
 
-start "" powershell -NoProfile -Command "Start-Sleep -Seconds 3; Start-Process $env:APP_URL"
+start "" powershell -NoProfile -Command "Start-Sleep -Seconds 3; Start-Process -FilePath '%APP_URL%'"
 
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --ssl-keyfile key.pem --ssl-certfile cert.pem
+%PYTHON_CMD% -m uvicorn main:app --host 0.0.0.0 --port 8000 --ssl-keyfile key.pem --ssl-certfile cert.pem
 
 pause

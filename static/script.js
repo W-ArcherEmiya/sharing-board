@@ -1,9 +1,12 @@
-const PBKDF2_ITERATIONS = 250000;
+const PBKDF2_ITERATIONS = 120000;
 const KEY_SALT_PREFIX = "sharing-board:v2:";
-const MAX_FILE_SIZE = 64 * 1024 * 1024;
+const MAX_FILE_SIZE = 128 * 1024 * 1024;
 const FILE_CHUNK_SIZE = 256 * 1024;
 const TEXT_SYNC_DELAY_MS = 180;
 const ROOM_SYNC_DELAY_MS = 250;
+const THEME_STORAGE_KEY = "sharing-board-theme";
+const ACCENT_STORAGE_KEY = "sharing-board-accent";
+const LEGACY_STORAGE_PREFIX = ["secure", "clipboard"].join("-");
 
 let ws = null;
 let sessionKey = null;
@@ -13,11 +16,20 @@ let keyRefreshVersion = 0;
 let textSyncTimer = null;
 let roomSyncTimer = null;
 let pendingEncryptedMessages = [];
+let encryptedMessagePipeline = Promise.resolve();
 let activeOutgoingTransfer = null;
 let outgoingTransferQueue = [];
 let qrRefreshTimer = null;
 let isPrimaryDevice = false;
 let invitePanelManualState = null;
+let presenceTimer = null;
+let presenceRoom = "";
+let previousPeerCount = 0;
+let presenceRefreshInFlight = false;
+let lastTimelineMinuteKey = "";
+let deviceProfile = null;
+let pendingProfileAvatar = "";
+let pendingProfileColor = "#5b8def";
 
 const incomingTransfers = new Map();
 const receivedDownloads = new Map();
@@ -40,8 +52,6 @@ const uploadBoxEl = fileInputEl.closest(".upload-box");
 const fileBottomPanelEl = document.querySelector(".file-bottom-panel");
 const receivedFilesEl = document.getElementById("received-files");
 const copyInviteBtn = document.getElementById("copy-invite-btn");
-const regenInviteBtn = document.getElementById("regen-invite-btn");
-const inviteLinkPreviewEl = document.getElementById("invite-link-preview");
 const inviteQrEl = document.getElementById("invite-qr");
 const invitePanelEl = document.getElementById("invite-panel");
 const toggleInvitePanelBtn = document.getElementById("toggle-invite-panel-btn");
@@ -50,6 +60,25 @@ const clipboardCountEl = document.getElementById("clipboard-count");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
 const toastEl = document.getElementById("toast");
 const mobileTabButtons = Array.from(document.querySelectorAll("[data-mobile-tab]"));
+const waitingScreenEl = document.getElementById("waiting-screen");
+const chatScreenEl = document.getElementById("chat-screen");
+const messageListEl = document.getElementById("message-list");
+const inviteQrMiniEl = document.getElementById("invite-qr-mini");
+const shareBackdropEl = document.getElementById("share-backdrop");
+const shareCloseBtn = document.getElementById("share-close-btn");
+const deviceCountEl = document.getElementById("device-count");
+const accentButtons = Array.from(document.querySelectorAll("[data-accent]"));
+const deviceProfileBtn = document.getElementById("device-profile-btn");
+const deviceAvatarPreviewEl = document.getElementById("device-avatar-preview");
+const profilePanelEl = document.getElementById("profile-panel");
+const profileBackdropEl = document.getElementById("profile-backdrop");
+const profileCloseBtn = document.getElementById("profile-close-btn");
+const profileAvatarPreviewEl = document.getElementById("profile-avatar-preview");
+const profileAvatarInputEl = document.getElementById("profile-avatar-input");
+const profileResetAvatarBtn = document.getElementById("profile-reset-avatar-btn");
+const profileNicknameInputEl = document.getElementById("profile-nickname-input");
+const profileSaveBtn = document.getElementById("profile-save-btn");
+const profileColorButtons = Array.from(document.querySelectorAll("[data-profile-color]"));
 
 passwordEl.addEventListener("input", () => {
     syncInviteState();
@@ -76,30 +105,25 @@ roomEl.addEventListener("input", () => {
 clipboardEl.addEventListener("input", () => {
     updateControls();
     updateClipboardMeta();
-    setClipboardSyncState("syncing", "同步中");
-    clearTimeout(textSyncTimer);
-    textSyncTimer = setTimeout(() => {
-        void sendTextPayload();
-    }, TEXT_SYNC_DELAY_MS);
+    setClipboardSyncState("idle", clipboardEl.value.trim() ? "待发送" : "已连接");
 });
 
 copyBtn.addEventListener("click", () => {
-    void copyToSystemClipboard();
+    void sendTextPayload();
 });
 
 clearBtn.addEventListener("click", () => {
     clipboardEl.value = "";
     updateClipboardMeta();
-    setClipboardSyncState("syncing", "同步中");
-    void sendTextPayload();
+    setClipboardSyncState("idle", "已连接");
+    updateControls();
 });
 
-clipboardEl.addEventListener("input", () => {
-    setClipboardSyncState("syncing", "同步中");
-});
-
-clearBtn.addEventListener("click", () => {
-    setClipboardSyncState("syncing", "同步中");
+clipboardEl.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        void sendTextPayload();
+    }
 });
 
 fileInputEl.addEventListener("change", () => {
@@ -129,20 +153,19 @@ uploadBoxEl.addEventListener("drop", (event) => {
     }
 });
 
-togglePasswordBtn.addEventListener("click", () => {
+togglePasswordBtn.addEventListener("click", (event) => {
+    event.preventDefault();
     const isHidden = passwordEl.type === "password";
+    const nextLabel = isHidden ? "隐藏" : "显示";
     passwordEl.type = isHidden ? "text" : "password";
+    togglePasswordBtn.textContent = nextLabel;
     togglePasswordBtn.classList.toggle("is-visible", isHidden);
-    togglePasswordBtn.setAttribute("aria-label", isHidden ? "隐藏密码" : "显示密码");
+    togglePasswordBtn.setAttribute("aria-label", `${nextLabel}密码`);
     togglePasswordBtn.setAttribute("aria-pressed", String(isHidden));
 });
 
 copyInviteBtn.addEventListener("click", () => {
     void copyInviteLink();
-});
-
-regenInviteBtn.addEventListener("click", () => {
-    resetInviteCredentials();
 });
 
 themeToggleBtn.addEventListener("click", () => {
@@ -155,6 +178,69 @@ toggleInvitePanelBtn.addEventListener("click", () => {
     applyInvitePanelState();
 });
 
+shareCloseBtn.addEventListener("click", closeInvitePanel);
+shareBackdropEl.addEventListener("click", closeInvitePanel);
+
+accentButtons.forEach((button) => {
+    button.addEventListener("click", () => setAccentTheme(button.dataset.accent));
+});
+
+deviceProfileBtn.addEventListener("click", openDeviceProfilePanel);
+profileCloseBtn.addEventListener("click", closeDeviceProfilePanel);
+profileBackdropEl.addEventListener("click", closeDeviceProfilePanel);
+profileSaveBtn.addEventListener("click", saveDeviceProfile);
+profileResetAvatarBtn.addEventListener("click", () => {
+    pendingProfileAvatar = "";
+    profileAvatarInputEl.value = "";
+    renderAvatar(profileAvatarPreviewEl, {
+        nickname: profileNicknameInputEl.value,
+        avatarColor: pendingProfileColor,
+        avatarDataUrl: "",
+    });
+    updateProfileAvatarActions();
+});
+profileAvatarInputEl.addEventListener("change", () => {
+    const [file] = Array.from(profileAvatarInputEl.files || []);
+    if (file) {
+        void selectProfileAvatar(file);
+    }
+});
+profileNicknameInputEl.addEventListener("input", () => {
+    if (!pendingProfileAvatar) {
+        renderAvatar(profileAvatarPreviewEl, {
+            nickname: profileNicknameInputEl.value,
+            avatarColor: pendingProfileColor,
+            avatarDataUrl: "",
+        });
+    }
+});
+profileColorButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        pendingProfileColor = button.dataset.profileColor;
+        updateProfileColorSelection();
+        if (!pendingProfileAvatar) {
+            renderAvatar(profileAvatarPreviewEl, {
+                nickname: profileNicknameInputEl.value,
+                avatarColor: pendingProfileColor,
+                avatarDataUrl: "",
+            });
+        }
+    });
+});
+
+document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+        return;
+    }
+    if (!profilePanelEl.classList.contains("collapsed")) {
+        closeDeviceProfilePanel();
+        return;
+    }
+    if (!invitePanelEl.classList.contains("collapsed")) {
+        closeInvitePanel();
+    }
+});
+
 mobileTabButtons.forEach((button) => {
     button.addEventListener("click", () => {
         setActiveMobileTab(button.dataset.mobileTab);
@@ -165,37 +251,21 @@ function initializeInviteCredentials() {
     const inviteParams = new URLSearchParams(window.location.hash.slice(1));
     const hashRoom = normalizeRoom(inviteParams.get("room") || "");
     const hashPassword = inviteParams.get("password") || "";
-    isPrimaryDevice = inviteParams.get("host") === "1";
+    isPrimaryDevice = inviteParams.get("host") === "1" || !(hashRoom && hashPassword);
 
     roomEl.value = hashRoom || generateReadableCode(8);
     passwordEl.value = hashPassword || generateReadableCode(12);
+    document.body.dataset.stage = isPrimaryDevice ? "waiting" : "chat";
+    waitingScreenEl.setAttribute("aria-hidden", String(!isPrimaryDevice));
+    chatScreenEl.setAttribute("aria-hidden", String(isPrimaryDevice));
     syncInviteState();
     applyInvitePanelState();
-}
-
-function resetInviteCredentials() {
-    roomEl.value = generateReadableCode(8);
-    passwordEl.value = generateReadableCode(12);
-    activeRoom = "";
-    pendingEncryptedMessages = [];
-    incomingTransfers.clear();
-    activeOutgoingTransfer = null;
-    outgoingTransferQueue = [];
-    invitePanelManualState = null;
-    resetSharedState();
-    setRoomStatus("加入中...", "muted");
-    syncInviteState();
-    applyInvitePanelState();
-    scheduleJoin();
-    void refreshSessionKey();
 }
 
 function syncInviteState() {
     const room = normalizeRoom(roomEl.value);
     const password = passwordEl.value.trim();
     const inviteLink = buildInviteLink(room, password);
-
-    inviteLinkPreviewEl.textContent = inviteLink || "邀请链接生成中...";
 
     updateAddressBar(room, password);
     scheduleQrRefresh(inviteLink);
@@ -223,14 +293,6 @@ function updateAddressBar(room, password) {
     history.replaceState(null, "", `${window.location.pathname}${hash}`);
 }
 
-function applyInvitePanelState() {
-    const shouldCollapse = invitePanelManualState === "expanded" ? false : true;
-
-    invitePanelEl.classList.toggle("collapsed", shouldCollapse);
-    toggleInvitePanelBtn.textContent = shouldCollapse ? "展开二维码与邀请信息" : "收起二维码与邀请信息";
-    toggleInvitePanelBtn.setAttribute("aria-expanded", String(!shouldCollapse));
-}
-
 function setActiveMobileTab(tabName) {
     const knownTabs = new Set(["text", "file", "connect"]);
     const nextTab = knownTabs.has(tabName) ? tabName : "file";
@@ -256,20 +318,28 @@ function scheduleQrRefresh(inviteLink) {
     }, 180);
 }
 
-async function renderInviteQr(inviteLink) {
+function renderInviteQr(inviteLink) {
     try {
         inviteQrEl.textContent = "二维码生成中...";
-        const response = await fetch("/api/qr", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ data: inviteLink }),
-        });
-
-        if (!response.ok) {
-            throw new Error(`QR request failed: ${response.status}`);
+        if (typeof qrcode !== "function") {
+            throw new Error("QR generator unavailable");
         }
 
-        inviteQrEl.innerHTML = await response.text();
+        qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"];
+        const qr = qrcode(0, "M");
+        qr.addData(inviteLink);
+        qr.make();
+        const qrMarkup = qr.createSvgTag({
+            cellSize: 8,
+            margin: 16,
+            scalable: true,
+        });
+        inviteQrEl.innerHTML = qrMarkup;
+        inviteQrMiniEl.innerHTML = qrMarkup;
+        if (isPrimaryDevice && activeRoom) {
+            statusEl.textContent = "二维码已就绪";
+            setRoomStatus("等待设备连接", "ready");
+        }
     } catch (error) {
         console.error(error);
         inviteQrEl.textContent = "二维码生成失败";
@@ -298,8 +368,8 @@ function connect() {
     ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
     ws.onopen = () => {
-        statusEl.textContent = "已连接";
-        statusSummaryEl.className = "status-summary connected";
+        statusEl.textContent = "房间已创建";
+        setRoomStatus("二维码准备中", "muted");
         scheduleJoin();
         updateControls();
     };
@@ -316,7 +386,8 @@ function connect() {
 
         if (message.type === "joined") {
             activeRoom = message.room;
-            setRoomStatus(`房间: ${message.room}`, "connected");
+            statusEl.textContent = "二维码已就绪";
+            setRoomStatus("等待设备连接", "ready");
             applyInvitePanelState();
             updateControls();
             logEl.textContent =
@@ -324,6 +395,10 @@ function connect() {
                     ? "已加入房间，正在恢复最近同步内容"
                     : "已加入房间，暂无历史内容";
             maybeResumeOutgoingTransfer();
+            startPresenceWatch();
+            if (!isPrimaryDevice) {
+                enterChatInterface("已通过邀请加入安全房间");
+            }
             return;
         }
 
@@ -347,7 +422,15 @@ function connect() {
         }
     };
 
-    ws.onclose = () => {
+    ws.onerror = () => {
+        statusEl.textContent = "连接失败";
+        statusSummaryEl.className = "status-summary disconnected";
+        setRoomStatus("无法建立实时同步连接", "muted");
+        logEl.textContent = "实时同步连接失败，请确认手机已信任证书且未被浏览器拦截";
+        updateControls();
+    };
+
+    ws.onclose = (event) => {
         statusEl.textContent = "断开连接";
         statusSummaryEl.className = "status-summary disconnected";
         activeRoom = "";
@@ -362,7 +445,8 @@ function connect() {
             );
         }
         updateControls();
-        setRoomStatus("连接断开，等待重连", "muted");
+        const closeHint = event.code ? `连接断开（${event.code}），等待重连` : "连接断开，等待重连";
+        setRoomStatus(closeHint, "muted");
         applyInvitePanelState();
         setTimeout(connect, 3000);
     };
@@ -419,6 +503,10 @@ async function refreshSessionKey() {
     }
 
     try {
+        if (!window.isSecureContext || !crypto.subtle) {
+            throw new Error("secure_context_required");
+        }
+
         logEl.textContent = "正在生成会话密钥...";
         const keyMaterial = await crypto.subtle.importKey(
             "raw",
@@ -459,19 +547,25 @@ async function refreshSessionKey() {
         if (version === keyRefreshVersion) {
             sessionKey = null;
             sessionKeyFingerprint = "";
-            logEl.textContent = "会话密钥生成失败";
+            const message = error && error.message === "secure_context_required"
+                ? "当前浏览器未允许加密能力，请使用 HTTPS 并在证书提示中继续访问"
+                : "会话密钥生成失败";
+            logEl.textContent = message;
+            setRoomStatus(message, "muted");
             updateControls();
         }
     }
 }
 
 async function sendTextPayload() {
-    if (!canSync()) {
+    const messageText = clipboardEl.value.trim();
+    if (!canSync() || !messageText) {
         return;
     }
 
     try {
-        const encrypted = await encryptBytes(textEncoder.encode(clipboardEl.value));
+        setClipboardSyncState("syncing", "发送中");
+        const encrypted = await encryptBytes(textEncoder.encode(messageText));
         ws.send(
             JSON.stringify({
                 type: "payload",
@@ -524,7 +618,15 @@ async function enqueueFiles(files) {
     }
 
     validFiles.forEach((transfer) => {
-        updateTransferItemProgress(transfer.transferId, transfer.metadata.fileName, transfer.metadata.size, 0);
+        updateTransferItemProgress(
+            transfer.transferId,
+            transfer.metadata.fileName,
+            transfer.metadata.size,
+            0,
+            transfer.metadata.sender,
+            "outgoing",
+            transfer.metadata.mimeType
+        );
     });
     outgoingTransferQueue = outgoingTransferQueue.concat(validFiles);
 
@@ -552,6 +654,7 @@ function createOutgoingTransfer(file, room) {
             fileName: file.name,
             mimeType: file.type || "application/octet-stream",
             size: file.size,
+            sender: getTransferSenderProfile(),
         },
         totalChunks: Math.max(1, Math.ceil(file.size / FILE_CHUNK_SIZE)),
         started: false,
@@ -733,13 +836,22 @@ async function sendMissingChunks(transfer, missingIndexes, initialReceivedCount)
 }
 
 async function queueOrProcessEncryptedMessage(message) {
-    if (!sessionKey) {
-        pendingEncryptedMessages.push(message);
-        logEl.textContent = "收到密文，请输入正确房间号和密码";
-        return;
-    }
+    encryptedMessagePipeline = encryptedMessagePipeline
+        .then(async () => {
+            if (!sessionKey) {
+                pendingEncryptedMessages.push(message);
+                logEl.textContent = "收到密文，请输入正确房间号和密码";
+                return;
+            }
 
-    await processEncryptedMessage(message);
+            await processEncryptedMessage(message);
+        })
+        .catch((error) => {
+            console.error(error);
+            logEl.textContent = "接收文件消息失败，请重新连接房间";
+        });
+
+    await encryptedMessagePipeline;
 }
 
 async function flushPendingEncryptedMessages() {
@@ -750,9 +862,7 @@ async function flushPendingEncryptedMessages() {
     const pending = pendingEncryptedMessages;
     pendingEncryptedMessages = [];
 
-    for (const message of pending) {
-        await processEncryptedMessage(message);
-    }
+    await Promise.all(pending.map((message) => queueOrProcessEncryptedMessage(message)));
 }
 
 async function processEncryptedMessage(message) {
@@ -816,7 +926,15 @@ async function handleFileManifest(message) {
             completed: false,
         });
 
-        updateTransferItemProgress(message.transfer_id, metadata.fileName, metadata.size, 0);
+        updateTransferItemProgress(
+            message.transfer_id,
+            metadata.fileName,
+            metadata.size,
+            0,
+            metadata.sender,
+            "incoming",
+            metadata.mimeType
+        );
     } catch (error) {
         console.error(error);
         pendingEncryptedMessages.push(message);
@@ -856,9 +974,16 @@ async function handleFileChunk(message) {
             });
             transfer.completed = true;
             transfer.chunks = [];
-            addDownloadableFile(message.transfer_id, transfer.metadata.fileName, blob, transfer.totalSize);
+            addDownloadableFile(
+                message.transfer_id,
+                transfer.metadata.fileName,
+                blob,
+                transfer.totalSize,
+                transfer.metadata.sender,
+                transfer.metadata.mimeType
+            );
             hideTransferSummary();
-            logEl.textContent = "文件已解密并组装完成";
+            logEl.textContent = "";
         }
     } catch (error) {
         console.error(error);
@@ -917,8 +1042,13 @@ async function markOutgoingTransferComplete(transfer) {
 
     transfer.completed = true;
     transfer.dispatchToken += 1;
-    logEl.textContent = `${transfer.metadata.fileName} 传输完成`;
-    markTransferItemSent(transfer.transferId, transfer.metadata.fileName, transfer.metadata.size);
+    logEl.textContent = "";
+    markTransferItemSent(
+        transfer.transferId,
+        transfer.metadata.fileName,
+        transfer.metadata.size,
+        transfer.metadata.mimeType
+    );
     activeOutgoingTransfer = null;
 
     if (outgoingTransferQueue.length) {
@@ -979,13 +1109,27 @@ function showButtonFeedback(button, text) {
     button.dataset.resetTimer = String(timer);
 }
 
-function addDownloadableFile(transferId, fileName, blob, size) {
+function addDownloadableFile(
+    transferId,
+    fileName,
+    blob,
+    size,
+    senderProfile = null,
+    mimeType = ""
+) {
     removeDownloadableFile(transferId);
 
     const url = URL.createObjectURL(blob);
-    const entry = ensureTransferItem(transferId, fileName, size);
-    entry.element.classList.add("download-ready");
-    entry.meta.textContent = formatBytes(size);
+    const entry = ensureTransferItem(
+        transferId,
+        fileName,
+        size,
+        senderProfile,
+        "incoming",
+        mimeType
+    );
+    entry.card.classList.add("download-ready");
+    updateFileMeta(entry, size);
     entry.actions.replaceChildren();
 
     const link = document.createElement("a");
@@ -994,17 +1138,11 @@ function addDownloadableFile(transferId, fileName, blob, size) {
     link.download = fileName;
     link.setAttribute("aria-label", `下载 ${fileName}`);
     link.title = "下载";
-    link.innerHTML = `
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M12 3v14"></path>
-            <path d="m6 11 6 6 6-6"></path>
-        </svg>
-    `;
+    link.append(entry.kindIcon);
     link.addEventListener("click", () => {
-        entry.element.classList.add("downloaded");
-        entry.meta.textContent = `${formatBytes(size)} · 已下载`;
+        entry.card.classList.add("downloaded");
         hideTransferSummary();
-        logEl.textContent = `${fileName} 已下载`;
+        logEl.textContent = "";
     });
 
     entry.actions.append(link);
@@ -1023,16 +1161,40 @@ function removeDownloadableFile(transferId) {
     removeTransferItem(transferId);
 }
 
-function ensureTransferItem(transferId, fileName, size) {
+function ensureTransferItem(
+    transferId,
+    fileName,
+    size,
+    senderProfile = null,
+    direction = "incoming",
+    mimeType = ""
+) {
     const existing = transferItems.get(transferId);
     if (existing) {
         existing.title.textContent = fileName;
-        existing.meta.textContent = formatBytes(size);
+        updateFileMeta(existing, size);
+        if (senderProfile) {
+            updateTransferSender(existing, senderProfile);
+        }
+        updateFileKind(existing, fileName, mimeType);
         return existing;
     }
 
     const item = document.createElement("div");
-    item.className = "received-file transfer-item";
+    item.className = `file-message ${direction}`;
+
+    const avatar = document.createElement("div");
+    avatar.className = "file-sender-avatar";
+    avatar.setAttribute("aria-hidden", "true");
+
+    const content = document.createElement("div");
+    content.className = "file-message-content";
+
+    const senderName = document.createElement("div");
+    senderName.className = "file-sender-name";
+
+    const card = document.createElement("div");
+    card.className = "received-file transfer-item";
 
     const main = document.createElement("div");
     main.className = "received-file-main";
@@ -1041,12 +1203,17 @@ function ensureTransferItem(transferId, fileName, size) {
     info.className = "received-file-info";
     const title = document.createElement("strong");
     title.textContent = fileName;
+    title.title = fileName;
     const meta = document.createElement("span");
-    meta.textContent = formatBytes(size);
+    meta.className = "file-meta-line";
     info.append(title, meta);
 
     const actions = document.createElement("div");
     actions.className = "received-file-actions";
+    const kindIcon = document.createElement("span");
+    kindIcon.className = "file-kind-icon";
+    kindIcon.setAttribute("aria-hidden", "true");
+    actions.append(kindIcon);
     main.append(info, actions);
 
     const progress = document.createElement("div");
@@ -1061,26 +1228,61 @@ function ensureTransferItem(transferId, fileName, size) {
     progressText.textContent = "0%";
     progress.append(progressTrack, progressText);
 
-    item.append(main, progress);
-    receivedFilesEl.prepend(item);
+    card.append(main, progress);
+    content.append(senderName, card);
+    item.append(avatar, content);
+    appendTimelineTimeDivider();
+    messageListEl.append(item);
 
-    const entry = { element: item, title, meta, actions, progressBar, progressText };
+    const entry = {
+        element: item,
+        card,
+        avatar,
+        senderName,
+        title,
+        meta,
+        direction,
+        size,
+        actions,
+        kindIcon,
+        progressBar,
+        progressText,
+    };
+    updateFileMeta(entry, size);
+    updateTransferSender(entry, senderProfile || getFallbackSenderProfile(direction));
+    updateFileKind(entry, fileName, mimeType);
     transferItems.set(transferId, entry);
     updateReceivedFilesVisibility();
+    messageListEl.scrollTo({ top: messageListEl.scrollHeight, behavior: "smooth" });
     return entry;
 }
 
-function updateTransferItemProgress(transferId, fileName, size, progress) {
-    const entry = ensureTransferItem(transferId, fileName, size);
+function updateTransferItemProgress(
+    transferId,
+    fileName,
+    size,
+    progress,
+    senderProfile = null,
+    direction = "incoming",
+    mimeType = ""
+) {
+    const entry = ensureTransferItem(
+        transferId,
+        fileName,
+        size,
+        senderProfile,
+        direction,
+        mimeType
+    );
     const nextProgress = Math.max(0, Math.min(100, Math.round(progress)));
     entry.progressBar.style.width = `${nextProgress}%`;
     entry.progressText.textContent = `${nextProgress}%`;
-    entry.element.classList.toggle("complete", nextProgress >= 100);
+    entry.card.classList.toggle("complete", nextProgress >= 100);
 }
 
 function updateMatchingTransferItem(fileName, size, progress) {
     for (const [transferId, entry] of transferItems.entries()) {
-        if (entry.title.textContent === fileName && entry.meta.textContent === formatBytes(size)) {
+        if (entry.title.textContent === fileName && entry.size === size) {
             updateTransferItemProgress(transferId, fileName, size, progress);
             return true;
         }
@@ -1089,11 +1291,26 @@ function updateMatchingTransferItem(fileName, size, progress) {
     return false;
 }
 
-function markTransferItemSent(transferId, fileName, size) {
-    const entry = ensureTransferItem(transferId, fileName, size);
-    updateTransferItemProgress(transferId, fileName, size, 100);
+function markTransferItemSent(transferId, fileName, size, mimeType = "") {
+    const entry = ensureTransferItem(
+        transferId,
+        fileName,
+        size,
+        getTransferSenderProfile(),
+        "outgoing",
+        mimeType
+    );
+    updateTransferItemProgress(
+        transferId,
+        fileName,
+        size,
+        100,
+        getTransferSenderProfile(),
+        "outgoing",
+        mimeType
+    );
     entry.element.classList.add("sent");
-    entry.actions.replaceChildren();
+    entry.actions.replaceChildren(entry.kindIcon);
     updateReceivedFilesVisibility();
 }
 
@@ -1122,6 +1339,10 @@ function resetSharedState() {
         element.remove();
     }
     transferItems.clear();
+    messageListEl.querySelectorAll(".message-row, .conversation-time-divider").forEach((element) => {
+        element.remove();
+    });
+    lastTimelineMinuteKey = "";
     updateReceivedFilesVisibility();
 
     setClipboardSyncState("idle", "等待同步");
@@ -1134,7 +1355,7 @@ function updateControls() {
     clipboardEl.disabled = !ready;
     fileInputEl.disabled = !ready;
     uploadBoxEl.classList.toggle("disabled", !ready);
-    copyBtn.disabled = !clipboardEl.value;
+    copyBtn.disabled = !ready || !clipboardEl.value.trim();
     clearBtn.disabled = !ready;
     updateClipboardMeta();
 }
@@ -1286,13 +1507,13 @@ function base64ToBytes(base64Value) {
 
 function formatBytes(size) {
     if (!Number.isFinite(size) || size <= 0) {
-        return "0 B";
+        return "0B";
     }
 
     const units = ["B", "KB", "MB", "GB"];
     const unitIndex = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length - 1);
     const value = size / 1024 ** unitIndex;
-    return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+    return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)}${units[unitIndex]}`;
 }
 
 function nextFrame() {
@@ -1306,15 +1527,30 @@ function messageEnvelope(type, payload) {
 }
 
 function initializeTheme() {
-    const savedTheme = localStorage.getItem("secure-clipboard-theme");
+    const savedTheme = readMigratedPreference(THEME_STORAGE_KEY, "theme");
+    const savedAccent = readMigratedPreference(ACCENT_STORAGE_KEY, "accent");
     document.body.classList.toggle("theme-dark", savedTheme === "dark");
+    setAccentTheme(savedAccent || "blue", false);
     updateThemeToggleButton();
+}
+
+function readMigratedPreference(currentKey, legacySuffix) {
+    const legacyKey = `${LEGACY_STORAGE_PREFIX}-${legacySuffix}`;
+    const currentValue = localStorage.getItem(currentKey);
+    const legacyValue = localStorage.getItem(legacyKey);
+    if (currentValue === null && legacyValue !== null) {
+        localStorage.setItem(currentKey, legacyValue);
+    }
+    if (legacyValue !== null) {
+        localStorage.removeItem(legacyKey);
+    }
+    return currentValue ?? legacyValue;
 }
 
 function toggleTheme() {
     const nextDark = !document.body.classList.contains("theme-dark");
     document.body.classList.toggle("theme-dark", nextDark);
-    localStorage.setItem("secure-clipboard-theme", nextDark ? "dark" : "light");
+    localStorage.setItem(THEME_STORAGE_KEY, nextDark ? "dark" : "light");
     updateThemeToggleButton();
 }
 
@@ -1325,10 +1561,456 @@ function updateThemeToggleButton() {
 }
 
 function applyInvitePanelState() {
-    const shouldCollapse = invitePanelManualState === "expanded" ? false : true;
-    invitePanelEl.classList.toggle("collapsed", shouldCollapse);
-    toggleInvitePanelBtn.textContent = shouldCollapse ? "展开二维码与邀请信息" : "收起二维码与邀请信息";
-    toggleInvitePanelBtn.setAttribute("aria-expanded", String(!shouldCollapse));
+    const isExpanded = invitePanelManualState === "expanded";
+    const actionLabel = isExpanded ? "收起二维码与邀请信息" : "展开二维码与邀请信息";
+    invitePanelEl.classList.toggle("collapsed", !isExpanded);
+    invitePanelEl.setAttribute("aria-hidden", String(!isExpanded));
+    toggleInvitePanelBtn.setAttribute("aria-expanded", String(isExpanded));
+    toggleInvitePanelBtn.setAttribute("aria-label", actionLabel);
+    toggleInvitePanelBtn.title = actionLabel;
+    shareBackdropEl.hidden = !isExpanded;
+    if (isExpanded) {
+        window.requestAnimationFrame(() => shareCloseBtn.focus());
+    }
+}
+
+function closeInvitePanel() {
+    invitePanelManualState = "collapsed";
+    applyInvitePanelState();
+    toggleInvitePanelBtn.focus();
+}
+
+function enterChatInterface(statusText = "设备已安全互联") {
+    document.body.dataset.stage = "chat";
+    waitingScreenEl.setAttribute("aria-hidden", "true");
+    chatScreenEl.setAttribute("aria-hidden", "false");
+    deviceCountEl.textContent = statusText;
+    window.setTimeout(() => {
+        messageListEl.scrollTop = messageListEl.scrollHeight;
+        if (canSync()) {
+            clipboardEl.focus({ preventScroll: true });
+        }
+    }, 40);
+}
+
+function startPresenceWatch() {
+    clearInterval(presenceTimer);
+    const room = normalizeRoom(roomEl.value);
+    if (room !== presenceRoom) {
+        presenceRoom = room;
+        previousPeerCount = isPrimaryDevice ? 1 : 0;
+    }
+    void refreshPresence();
+    presenceTimer = window.setInterval(() => void refreshPresence(), 1200);
+}
+
+async function refreshPresence() {
+    const room = normalizeRoom(roomEl.value);
+    if (!room || !activeRoom || presenceRefreshInFlight) {
+        return;
+    }
+
+    presenceRefreshInFlight = true;
+    try {
+        const response = await fetch(`/api/rooms/${encodeURIComponent(room)}/presence`, { cache: "no-store" });
+        if (!response.ok) {
+            return;
+        }
+        const presence = await response.json();
+        const peers = Number(presence.peers || 0);
+        const hasNewDevice = isPrimaryDevice && peers > 1 && peers > previousPeerCount;
+        const shouldEnterChat = isPrimaryDevice && peers > 1 && document.body.dataset.stage !== "chat";
+        deviceCountEl.textContent = peers > 1 ? `${peers} 台设备已安全互联` : "等待另一台设备加入";
+        if (peers > 1) {
+            statusEl.textContent = "设备已互联";
+            setRoomStatus(`${peers} 台设备在线`, "connected");
+        } else if (isPrimaryDevice) {
+            statusEl.textContent = "二维码已就绪";
+            setRoomStatus("等待设备连接", "ready");
+        }
+        if (shouldEnterChat) {
+            enterChatInterface(`${peers} 台设备已安全互联`);
+        }
+        if (hasNewDevice) {
+            showToast("新设备已加入");
+        }
+        previousPeerCount = peers;
+    } catch (error) {
+        console.debug("presence check skipped", error);
+    } finally {
+        presenceRefreshInFlight = false;
+    }
+}
+
+function setAccentTheme(accent, persist = true) {
+    const allowed = new Set(["blue", "green", "coral", "violet", "pink", "cyan"]);
+    const nextAccent = allowed.has(accent) ? accent : "blue";
+    document.body.dataset.accent = nextAccent;
+    accentButtons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.accent === nextAccent);
+    });
+    if (persist) {
+        localStorage.setItem(ACCENT_STORAGE_KEY, nextAccent);
+    }
+}
+
+function initializeDeviceProfile() {
+    const fallbackDeviceId = generateDeviceShortCode();
+    const defaultProfile = {
+        nickname: /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)
+            ? "我的手机"
+            : "我的电脑",
+        avatarColor: "#5b8def",
+        avatarDataUrl: "",
+        deviceId: fallbackDeviceId,
+    };
+
+    try {
+        const savedProfile = JSON.parse(localStorage.getItem("sharing-board-device-profile") || "null");
+        deviceProfile = normalizeSenderProfile(
+            savedProfile,
+            defaultProfile.nickname,
+            fallbackDeviceId
+        );
+    } catch (error) {
+        console.debug("device profile reset", error);
+        deviceProfile = defaultProfile;
+    }
+
+    localStorage.setItem("sharing-board-device-profile", JSON.stringify(deviceProfile));
+    renderAvatar(deviceAvatarPreviewEl, deviceProfile);
+}
+
+function normalizeSenderProfile(profile, fallbackName = "其他设备", fallbackDeviceId = "") {
+    const allowedColors = new Set([
+        "#5b8def",
+        "#07c160",
+        "#f08a5d",
+        "#8a6de9",
+        "#df6fa8",
+        "#43b7b7",
+    ]);
+    const nickname = typeof profile?.nickname === "string"
+        ? profile.nickname.trim().slice(0, 20)
+        : "";
+    const avatarColor = allowedColors.has(profile?.avatarColor)
+        ? profile.avatarColor
+        : "#5b8def";
+    const avatarDataUrl = isSafeAvatarDataUrl(profile?.avatarDataUrl)
+        ? profile.avatarDataUrl
+        : "";
+    const normalizedDeviceId = typeof profile?.deviceId === "string"
+        ? profile.deviceId.trim().toUpperCase()
+        : "";
+    const deviceId = /^[A-Z2-9]{4}$/.test(normalizedDeviceId)
+        ? normalizedDeviceId
+        : fallbackDeviceId;
+
+    return {
+        nickname: nickname || fallbackName,
+        avatarColor,
+        avatarDataUrl,
+        deviceId,
+    };
+}
+
+function generateDeviceShortCode() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const bytes = crypto.getRandomValues(new Uint8Array(4));
+    return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
+}
+
+function formatSenderDisplayName(profile) {
+    return profile.deviceId ? `${profile.nickname} · ${profile.deviceId}` : profile.nickname;
+}
+
+function isSafeAvatarDataUrl(value) {
+    return Boolean(
+        typeof value === "string" &&
+        value.length <= 90000 &&
+        /^data:image\/(?:png|jpeg|webp);base64,/i.test(value)
+    );
+}
+
+function getTransferSenderProfile() {
+    return normalizeSenderProfile(deviceProfile, "我的设备", deviceProfile?.deviceId || "");
+}
+
+function getFallbackSenderProfile(direction) {
+    if (direction === "outgoing") {
+        return getTransferSenderProfile();
+    }
+    return {
+        nickname: "其他设备",
+        avatarColor: "#8a6de9",
+        avatarDataUrl: "",
+        deviceId: "",
+    };
+}
+
+function renderAvatar(element, profile) {
+    const normalized = normalizeSenderProfile(profile);
+    element.replaceChildren();
+    element.style.backgroundColor = normalized.avatarColor;
+
+    if (normalized.avatarDataUrl) {
+        const image = document.createElement("img");
+        image.src = normalized.avatarDataUrl;
+        image.alt = "";
+        element.append(image);
+        return;
+    }
+
+    const initial = document.createElement("span");
+    initial.textContent = Array.from(normalized.nickname)[0] || "设";
+    element.append(initial);
+}
+
+function updateTransferSender(entry, profile) {
+    const normalized = normalizeSenderProfile(profile);
+    entry.senderName.textContent = formatSenderDisplayName(normalized);
+    renderAvatar(entry.avatar, normalized);
+}
+
+function updateFileMeta(entry, size) {
+    entry.size = size;
+    const parts = entry.direction === "outgoing"
+        ? [formatBytes(size), "已发送"]
+        : [formatBytes(size)];
+    entry.meta.textContent = parts.join(" ");
+}
+
+function appendTimelineTimeDivider(date = new Date()) {
+    const minuteKey = [
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        date.getHours(),
+        date.getMinutes(),
+    ].join("-");
+    if (minuteKey === lastTimelineMinuteKey) {
+        return;
+    }
+
+    lastTimelineMinuteKey = minuteKey;
+    const divider = document.createElement("div");
+    divider.className = "conversation-time-divider";
+    const label = document.createElement("span");
+    label.textContent = new Intl.DateTimeFormat("zh-CN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+    }).format(date);
+    divider.append(label);
+    messageListEl.append(divider);
+}
+
+function updateFileKind(entry, fileName, mimeType = "") {
+    const kind = detectFileKind(fileName, mimeType);
+    entry.kind = kind;
+    entry.kindIcon.className = `file-kind-icon ${kind}`;
+    entry.kindIcon.title = {
+        photo: "照片",
+        video: "视频",
+        document: "文档",
+        generic: "文件",
+    }[kind];
+}
+
+function detectFileKind(fileName, mimeType = "") {
+    const normalizedMime = String(mimeType || "").toLowerCase();
+    const extension = String(fileName || "").split(".").pop().toLowerCase();
+    const photoExtensions = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "avif", "svg"]);
+    const videoExtensions = new Set(["mp4", "mov", "m4v", "avi", "mkv", "webm", "flv", "wmv", "3gp"]);
+    const documentExtensions = new Set([
+        "txt", "md", "pdf", "doc", "docx", "rtf", "odt",
+        "xls", "xlsx", "csv", "ods", "ppt", "pptx", "odp",
+    ]);
+
+    if (normalizedMime.startsWith("image/") || photoExtensions.has(extension)) {
+        return "photo";
+    }
+    if (normalizedMime.startsWith("video/") || videoExtensions.has(extension)) {
+        return "video";
+    }
+    if (
+        normalizedMime.startsWith("text/") ||
+        /pdf|word|document|excel|sheet|presentation|powerpoint|rtf|csv/.test(normalizedMime) ||
+        documentExtensions.has(extension)
+    ) {
+        return "document";
+    }
+    return "generic";
+}
+
+function openDeviceProfilePanel() {
+    closeInvitePanel();
+    const profile = getTransferSenderProfile();
+    pendingProfileAvatar = profile.avatarDataUrl;
+    pendingProfileColor = profile.avatarColor;
+    profileNicknameInputEl.value = profile.nickname;
+    profileAvatarInputEl.value = "";
+    renderAvatar(profileAvatarPreviewEl, profile);
+    updateProfileColorSelection();
+    updateProfileAvatarActions();
+    profilePanelEl.classList.remove("collapsed");
+    profilePanelEl.setAttribute("aria-hidden", "false");
+    profileBackdropEl.hidden = false;
+    deviceProfileBtn.setAttribute("aria-expanded", "true");
+    window.requestAnimationFrame(() => profileCloseBtn.focus());
+}
+
+function closeDeviceProfilePanel() {
+    profilePanelEl.classList.add("collapsed");
+    profilePanelEl.setAttribute("aria-hidden", "true");
+    profileBackdropEl.hidden = true;
+    deviceProfileBtn.setAttribute("aria-expanded", "false");
+    deviceProfileBtn.focus();
+}
+
+function updateProfileColorSelection() {
+    profileColorButtons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.profileColor === pendingProfileColor);
+    });
+}
+
+function updateProfileAvatarActions() {
+    profileResetAvatarBtn.hidden = !pendingProfileAvatar;
+}
+
+function saveDeviceProfile() {
+    deviceProfile = normalizeSenderProfile({
+        nickname: profileNicknameInputEl.value,
+        avatarColor: pendingProfileColor,
+        avatarDataUrl: pendingProfileAvatar,
+        deviceId: deviceProfile?.deviceId,
+    }, /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ? "我的手机" : "我的电脑", deviceProfile?.deviceId || generateDeviceShortCode());
+
+    localStorage.setItem("sharing-board-device-profile", JSON.stringify(deviceProfile));
+    renderAvatar(deviceAvatarPreviewEl, deviceProfile);
+    closeDeviceProfilePanel();
+    showToast("设备资料已保存");
+}
+
+async function selectProfileAvatar(file) {
+    if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024) {
+        showToast("请选择 5MB 以内的图片");
+        profileAvatarInputEl.value = "";
+        return;
+    }
+
+    try {
+        pendingProfileAvatar = await compressProfileAvatar(file);
+        renderAvatar(profileAvatarPreviewEl, {
+            nickname: profileNicknameInputEl.value,
+            avatarColor: pendingProfileColor,
+            avatarDataUrl: pendingProfileAvatar,
+        });
+        updateProfileAvatarActions();
+        showToast("头像已选择");
+    } catch (error) {
+        console.error(error);
+        showToast("头像读取失败");
+    }
+}
+
+async function compressProfileAvatar(file) {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+        const image = await new Promise((resolve, reject) => {
+            const avatarImage = new Image();
+            avatarImage.onload = () => resolve(avatarImage);
+            avatarImage.onerror = () => reject(new Error("avatar_load_failed"));
+            avatarImage.src = objectUrl;
+        });
+        const size = 96;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const context = canvas.getContext("2d");
+        if (!context) {
+            throw new Error("canvas_unavailable");
+        }
+        const sourceSize = Math.min(image.naturalWidth, image.naturalHeight);
+        const sourceX = (image.naturalWidth - sourceSize) / 2;
+        const sourceY = (image.naturalHeight - sourceSize) / 2;
+        context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+        return canvas.toDataURL("image/jpeg", 0.82);
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
+}
+
+function appendChatText(text, direction, senderProfile = null) {
+    if (!text) {
+        return;
+    }
+
+    const row = document.createElement("div");
+    row.className = `message-row ${direction}`;
+
+    const normalizedSender = normalizeSenderProfile(
+        senderProfile,
+        direction === "outgoing" ? "我的设备" : "其他设备"
+    );
+    const avatar = document.createElement("div");
+    avatar.className = "file-sender-avatar text-sender-avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    renderAvatar(avatar, normalizedSender);
+
+    const messageContent = document.createElement("div");
+    messageContent.className = "text-message-content";
+    const senderName = document.createElement("div");
+    senderName.className = "text-sender-name";
+    senderName.textContent = formatSenderDisplayName(normalizedSender);
+
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble";
+    const content = document.createElement("p");
+    content.textContent = text;
+    const footer = document.createElement("div");
+    footer.className = "message-bubble-footer";
+    const copyMessageButton = document.createElement("button");
+    copyMessageButton.type = "button";
+    copyMessageButton.className = "message-copy-button";
+    copyMessageButton.setAttribute("aria-label", "复制这条文字");
+    copyMessageButton.title = "复制文字";
+    copyMessageButton.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h7A1.5 1.5 0 0 1 19 5.5v7a1.5 1.5 0 0 1-1.5 1.5H16"></path>
+            <rect x="4" y="8" width="11" height="11" rx="2"></rect>
+        </svg>`;
+    copyMessageButton.addEventListener("click", () => {
+        void copyChatMessage(text, copyMessageButton);
+    });
+    footer.append(copyMessageButton);
+    bubble.append(content, footer);
+    messageContent.append(senderName, bubble);
+    row.append(avatar, messageContent);
+    appendTimelineTimeDivider();
+    messageListEl.append(row);
+    messageListEl.scrollTo({ top: messageListEl.scrollHeight, behavior: "smooth" });
+}
+
+async function copyChatMessage(text, button) {
+    try {
+        await navigator.clipboard.writeText(text);
+        button.classList.add("copied");
+        showToast("文字已复制");
+        window.setTimeout(() => button.classList.remove("copied"), 1200);
+    } catch (error) {
+        console.error(error);
+        const helper = document.createElement("textarea");
+        helper.value = text;
+        helper.readOnly = true;
+        helper.style.position = "fixed";
+        helper.style.left = "-9999px";
+        document.body.append(helper);
+        helper.select();
+        const copied = document.execCommand("copy");
+        helper.remove();
+        showToast(copied ? "文字已复制" : "复制失败");
+    }
 }
 
 function setClipboardSyncState(state, text) {
@@ -1401,12 +2083,18 @@ showButtonFeedback = function showButtonFeedbackWithToast(button, text) {
 };
 
 async function sendTextPayload() {
-    if (!canSync()) {
+    const messageText = clipboardEl.value.trim();
+    if (!canSync() || !messageText) {
         return;
     }
 
     try {
-        const encrypted = await encryptBytes(textEncoder.encode(clipboardEl.value));
+        setClipboardSyncState("syncing", "发送中");
+        const encrypted = await encryptBytes(textEncoder.encode(messageText));
+        const senderProfile = getTransferSenderProfile();
+        const encryptedSender = await encryptBytes(
+            textEncoder.encode(JSON.stringify(senderProfile))
+        );
         ws.send(
             JSON.stringify({
                 type: "payload",
@@ -1414,10 +2102,16 @@ async function sendTextPayload() {
                     kind: "text",
                     iv: bytesToBase64(encrypted.iv),
                     data: bytesToBase64(encrypted.data),
+                    sender_iv: bytesToBase64(encryptedSender.iv),
+                    sender_data: bytesToBase64(encryptedSender.data),
                 },
             })
         );
-        setClipboardSyncState("synced", "已同步");
+        appendChatText(messageText, "outgoing", senderProfile);
+        clipboardEl.value = "";
+        updateClipboardMeta();
+        updateControls();
+        setClipboardSyncState("synced", "已发送");
         logEl.textContent = "文字已加密并同步";
     } catch (error) {
         console.error(error);
@@ -1435,10 +2129,23 @@ async function handleTextPayload(payload) {
     try {
         const decryptedBytes = await decryptBase64Envelope(payload.iv, payload.data);
         const nextText = textDecoder.decode(decryptedBytes);
-        if (clipboardEl.value !== nextText) {
-            clipboardEl.value = nextText;
+        let senderProfile = getFallbackSenderProfile("incoming");
+        if (payload.sender_iv && payload.sender_data) {
+            try {
+                const decryptedSender = await decryptBase64Envelope(
+                    payload.sender_iv,
+                    payload.sender_data
+                );
+                senderProfile = normalizeSenderProfile(
+                    JSON.parse(textDecoder.decode(decryptedSender)),
+                    "其他设备"
+                );
+            } catch (error) {
+                console.debug("text sender profile fallback", error);
+            }
         }
-        updateClipboardMeta();
+        appendChatText(nextText, "incoming", senderProfile);
+        enterChatInterface("新消息已安全接收");
         setClipboardSyncState("synced", "已同步");
         logEl.textContent = "文字已更新";
         updateControls();
@@ -1492,6 +2199,7 @@ function handleFileStatus(message) {
     logEl.textContent = "收到文件状态，等待文件描述解密";
 }
 
+initializeDeviceProfile();
 initializeInviteCredentials();
 initializeTheme();
 updateClipboardMeta();

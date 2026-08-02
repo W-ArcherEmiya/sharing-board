@@ -3,19 +3,17 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
-import qrcode
-import qrcode.image.svg
 import uvicorn
-from fastapi import Body
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 MAX_ROOM_ID_LENGTH = 64
+APP_VERSION = "1.5.27"
 ASSET_VERSION = str(int(time.time()))
 
-app = FastAPI()
+app = FastAPI(title="Sharing Board", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -314,22 +312,22 @@ async def get_index(request: Request) -> HTMLResponse:
         "index.html",
         {
             "asset_version": ASSET_VERSION,
+            "app_version": APP_VERSION,
         },
     )
 
 
-@app.post("/api/qr", response_class=Response)
-async def create_qr(payload: dict = Body(...)) -> Response:
-    invite_data = payload.get("data")
-    if not isinstance(invite_data, str) or not invite_data.strip():
-        return Response("Missing QR data", status_code=400, media_type="text/plain")
+@app.get("/api/rooms/{room_id}/presence")
+async def get_room_presence(room_id: str) -> dict:
+    normalized_room = normalize_room_id(room_id)
+    if normalized_room is None:
+        return {"room": "", "peers": 0}
 
-    qr = qrcode.QRCode(border=2, box_size=8)
-    qr.add_data(invite_data)
-    qr.make(fit=True)
-    image = qr.make_image(image_factory=qrcode.image.svg.SvgPathImage)
-    svg_bytes = image.to_string(encoding="unicode")
-    return Response(content=svg_bytes, media_type="image/svg+xml")
+    room = manager.rooms.get(normalized_room)
+    return {
+        "room": normalized_room,
+        "peers": len(room.connections) if room is not None else 0,
+    }
 
 
 @app.websocket("/ws")

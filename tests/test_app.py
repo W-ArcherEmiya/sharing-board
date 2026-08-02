@@ -1,8 +1,11 @@
 import unittest
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 import main
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class AppTestCase(unittest.TestCase):
@@ -17,17 +20,40 @@ class AppTestCase(unittest.TestCase):
     def test_index_page_loads(self) -> None:
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Secure Clipboard", response.text)
+        self.assertIn("<title>Sharing Board</title>", response.text)
+        self.assertIn("<h2>Sharing Board</h2>", response.text)
         self.assertIn("文件传输", response.text)
-        self.assertIn("邀请其他设备", response.text)
+        self.assertIn('aria-label="分享房间"', response.text)
+        self.assertIn("复制邀请链接", response.text)
 
-    def test_qr_api_returns_svg(self) -> None:
-        response = self.client.post("/api/qr", json={"data": "https://example.test/#room=a&password=b"})
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("<svg", response.text)
+    def test_qr_is_generated_in_browser_without_server_api(self) -> None:
+        response = self.client.get("/")
+        script = (PROJECT_ROOT / "static" / "script.js").read_text(encoding="utf-8")
+        requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn('/static/vendor/qrcode.js?v=1.4.4', response.text)
+        self.assertIn('const qr = qrcode(0, "M");', script)
+        self.assertNotIn('fetch("/api/qr"', script)
+        self.assertNotIn("qrcode>=", requirements)
+        self.assertEqual(
+            self.client.post("/api/qr", json={"data": "secret-invite-link"}).status_code,
+            404,
+        )
+
+    def test_readme_documents_security_and_resume_boundaries(self) -> None:
+        readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("邀请二维码在浏览器本地生成", readme)
+        self.assertIn("最近一次文件的加密分片", readme)
+        self.assertIn("自动续传仅适用于原发送页面仍然打开", readme)
+        self.assertIn("单文件大小上限为 `128 MB`", readme)
 
     def test_room_isolation_and_last_payload_sync(self) -> None:
-        payload = {"kind": "text", "iv": "aXY=", "data": "ZGF0YQ=="}
+        payload = {
+            "kind": "text",
+            "iv": "aXY=",
+            "data": "ZGF0YQ==",
+            "sender_iv": "c2VuZGVyLWl2",
+            "sender_data": "c2VuZGVyLWRhdGE=",
+        }
 
         with self.client.websocket_connect("/ws") as sender, self.client.websocket_connect("/ws") as receiver:
             sender.send_json({"type": "join", "room": "alpha"})
@@ -143,6 +169,49 @@ class AppTestCase(unittest.TestCase):
             replayed_status = late_joiner.receive_json()
             self.assertEqual(replayed_status["type"], "file_status")
             self.assertEqual(replayed_status["status"], "completed")
+
+    def test_file_transfer_broadcasts_to_two_receiving_devices(self) -> None:
+        manifest = {
+            "type": "file_manifest",
+            "transfer_id": "file-three-devices",
+            "upload_token": "upload-three-devices",
+            "total_chunks": 1,
+            "total_size": 6,
+            "chunk_size": 6,
+            "meta_iv": "bWV0YS1pdg==",
+            "meta_data": "bWV0YS1kYXRh",
+        }
+        replay_manifest = {key: value for key, value in manifest.items() if key != "upload_token"}
+        chunk = {
+            "type": "file_chunk",
+            "transfer_id": "file-three-devices",
+            "upload_token": "upload-three-devices",
+            "index": 0,
+            "iv": "aXYtMA==",
+            "data": "Y2h1bmstMA==",
+        }
+        replay_chunk = {key: value for key, value in chunk.items() if key != "upload_token"}
+
+        with (
+            self.client.websocket_connect("/ws") as sender,
+            self.client.websocket_connect("/ws") as receiver_one,
+            self.client.websocket_connect("/ws") as receiver_two,
+        ):
+            for connection in (sender, receiver_one, receiver_two):
+                connection.send_json({"type": "join", "room": "three-devices"})
+                self.assertEqual(connection.receive_json()["type"], "joined")
+
+            sender.send_json(manifest)
+            for receiver in (receiver_one, receiver_two):
+                self.assertEqual(receiver.receive_json(), replay_manifest)
+                self.assertEqual(receiver.receive_json()["status"], "uploading")
+
+            sender.send_json(chunk)
+            for receiver in (receiver_one, receiver_two):
+                self.assertEqual(receiver.receive_json(), replay_chunk)
+                completed = receiver.receive_json()
+                self.assertEqual(completed["status"], "completed")
+                self.assertEqual(completed["received_chunks"], 1)
 
     def test_file_resume_state_after_disconnect(self) -> None:
         manifest = {
