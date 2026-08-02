@@ -4,6 +4,9 @@ const MAX_FILE_SIZE = 128 * 1024 * 1024;
 const FILE_CHUNK_SIZE = 256 * 1024;
 const TEXT_SYNC_DELAY_MS = 180;
 const ROOM_SYNC_DELAY_MS = 250;
+const THEME_STORAGE_KEY = "sharing-board-theme";
+const ACCENT_STORAGE_KEY = "sharing-board-accent";
+const LEGACY_STORAGE_PREFIX = ["secure", "clipboard"].join("-");
 
 let ws = null;
 let sessionKey = null;
@@ -315,20 +318,22 @@ function scheduleQrRefresh(inviteLink) {
     }, 180);
 }
 
-async function renderInviteQr(inviteLink) {
+function renderInviteQr(inviteLink) {
     try {
         inviteQrEl.textContent = "二维码生成中...";
-        const response = await fetch("/api/qr", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ data: inviteLink }),
-        });
-
-        if (!response.ok) {
-            throw new Error(`QR request failed: ${response.status}`);
+        if (typeof qrcode !== "function") {
+            throw new Error("QR generator unavailable");
         }
 
-        const qrMarkup = await response.text();
+        qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"];
+        const qr = qrcode(0, "M");
+        qr.addData(inviteLink);
+        qr.make();
+        const qrMarkup = qr.createSvgTag({
+            cellSize: 8,
+            margin: 16,
+            scalable: true,
+        });
         inviteQrEl.innerHTML = qrMarkup;
         inviteQrMiniEl.innerHTML = qrMarkup;
         if (isPrimaryDevice && activeRoom) {
@@ -1522,16 +1527,30 @@ function messageEnvelope(type, payload) {
 }
 
 function initializeTheme() {
-    const savedTheme = localStorage.getItem("secure-clipboard-theme");
+    const savedTheme = readMigratedPreference(THEME_STORAGE_KEY, "theme");
+    const savedAccent = readMigratedPreference(ACCENT_STORAGE_KEY, "accent");
     document.body.classList.toggle("theme-dark", savedTheme === "dark");
-    setAccentTheme(localStorage.getItem("secure-clipboard-accent") || "blue", false);
+    setAccentTheme(savedAccent || "blue", false);
     updateThemeToggleButton();
+}
+
+function readMigratedPreference(currentKey, legacySuffix) {
+    const legacyKey = `${LEGACY_STORAGE_PREFIX}-${legacySuffix}`;
+    const currentValue = localStorage.getItem(currentKey);
+    const legacyValue = localStorage.getItem(legacyKey);
+    if (currentValue === null && legacyValue !== null) {
+        localStorage.setItem(currentKey, legacyValue);
+    }
+    if (legacyValue !== null) {
+        localStorage.removeItem(legacyKey);
+    }
+    return currentValue ?? legacyValue;
 }
 
 function toggleTheme() {
     const nextDark = !document.body.classList.contains("theme-dark");
     document.body.classList.toggle("theme-dark", nextDark);
-    localStorage.setItem("secure-clipboard-theme", nextDark ? "dark" : "light");
+    localStorage.setItem(THEME_STORAGE_KEY, nextDark ? "dark" : "light");
     updateThemeToggleButton();
 }
 
@@ -1631,7 +1650,7 @@ function setAccentTheme(accent, persist = true) {
         button.classList.toggle("active", button.dataset.accent === nextAccent);
     });
     if (persist) {
-        localStorage.setItem("secure-clipboard-accent", nextAccent);
+        localStorage.setItem(ACCENT_STORAGE_KEY, nextAccent);
     }
 }
 

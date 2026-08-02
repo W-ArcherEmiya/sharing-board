@@ -6,12 +6,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class UIControlsTestCase(unittest.TestCase):
+    def test_brand_preferences_use_sharing_board_storage_keys(self) -> None:
+        script = (PROJECT_ROOT / "static" / "script.js").read_text(encoding="utf-8")
+        self.assertIn('const THEME_STORAGE_KEY = "sharing-board-theme";', script)
+        self.assertIn('const ACCENT_STORAGE_KEY = "sharing-board-accent";', script)
+        self.assertIn("readMigratedPreference(THEME_STORAGE_KEY", script)
+        self.assertIn("localStorage.removeItem(legacyKey);", script)
+
     def test_single_file_limit_is_128_mb_with_256_kb_chunks(self) -> None:
         script = (PROJECT_ROOT / "static" / "script.js").read_text(encoding="utf-8")
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("const MAX_FILE_SIZE = 128 * 1024 * 1024;", script)
         self.assertIn("const FILE_CHUNK_SIZE = 256 * 1024;", script)
-        self.assertIn("当前单文件大小限制为 `128 MB`", readme)
+        self.assertIn("单文件大小上限为 `128 MB`", readme)
 
     def test_password_toggle_updates_visible_label_and_accessible_name(self) -> None:
         script = (PROJECT_ROOT / "static" / "script.js").read_text(encoding="utf-8")
