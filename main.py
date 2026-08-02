@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 MAX_ROOM_ID_LENGTH = 64
-APP_VERSION = "1.5.24"
+APP_VERSION = "1.5.25"
 ASSET_VERSION = str(int(time.time()))
 
 app = FastAPI(title="Sharing Board", version=APP_VERSION)

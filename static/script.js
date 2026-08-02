@@ -1,6 +1,6 @@
 const PBKDF2_ITERATIONS = 120000;
 const KEY_SALT_PREFIX = "sharing-board:v2:";
-const MAX_FILE_SIZE = 64 * 1024 * 1024;
+const MAX_FILE_SIZE = 128 * 1024 * 1024;
 const FILE_CHUNK_SIZE = 256 * 1024;
 const TEXT_SYNC_DELAY_MS = 180;
 const ROOM_SYNC_DELAY_MS = 250;
