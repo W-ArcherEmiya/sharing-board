@@ -131,7 +131,7 @@ class PublicReadinessTestCase(unittest.TestCase):
         self.assertIn("server.*.log", gitignore)
         self.assertIn("tmp/", gitignore)
         self.assertIn("--ws-max-size 524288", launcher)
-        self.assertEqual(main.APP_VERSION, "1.6.0")
+        self.assertEqual(main.APP_VERSION, "1.6.1")
 
     def test_browser_script_has_no_duplicate_function_declarations(self) -> None:
         script = (PROJECT_ROOT / "static" / "script.js").read_text(encoding="utf-8")
