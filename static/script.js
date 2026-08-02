@@ -557,32 +557,6 @@ async function refreshSessionKey() {
     }
 }
 
-async function sendTextPayload() {
-    const messageText = clipboardEl.value.trim();
-    if (!canSync() || !messageText) {
-        return;
-    }
-
-    try {
-        setClipboardSyncState("syncing", "发送中");
-        const encrypted = await encryptBytes(textEncoder.encode(messageText));
-        ws.send(
-            JSON.stringify({
-                type: "payload",
-                payload: {
-                    kind: "text",
-                    iv: bytesToBase64(encrypted.iv),
-                    data: bytesToBase64(encrypted.data),
-                },
-            })
-        );
-        logEl.textContent = "文字已加密并同步";
-    } catch (error) {
-        console.error(error);
-        logEl.textContent = "文字同步失败";
-    }
-}
-
 async function enqueueSelectedFiles() {
     const files = Array.from(fileInputEl.files || []);
     fileInputEl.value = "";
@@ -881,30 +855,6 @@ async function processEncryptedMessage(message) {
     }
 }
 
-async function handleTextPayload(payload) {
-    if (!payload || typeof payload !== "object") {
-        logEl.textContent = "收到无效文字内容";
-        return;
-    }
-
-    try {
-        const decryptedBytes = await decryptBase64Envelope(payload.iv, payload.data);
-        const nextText = textDecoder.decode(decryptedBytes);
-        if (clipboardEl.value !== nextText) {
-            clipboardEl.value = nextText;
-        }
-        updateClipboardMeta();
-        setClipboardSyncState("synced", "已同步");
-        logEl.textContent = "文字已解密并更新";
-        updateControls();
-    } catch (error) {
-        console.error(error);
-        pendingEncryptedMessages = [messageEnvelope("payload", payload)];
-        setClipboardSyncState("error", "解密失败");
-        logEl.textContent = "文字解密失败，请检查房间号和密码";
-    }
-}
-
 async function handleFileManifest(message) {
     if (activeOutgoingTransfer && activeOutgoingTransfer.transferId === message.transfer_id) {
         return;
@@ -991,48 +941,6 @@ async function handleFileChunk(message) {
         pendingEncryptedMessages.push(message);
         logEl.textContent = "文件分片解密失败，请检查房间号和密码";
     }
-}
-
-function handleFileStatus(message) {
-    const statusText = describeTransferStatus(message.status, message.received_chunks, message.total_chunks);
-
-    if (activeOutgoingTransfer && activeOutgoingTransfer.transferId === message.transfer_id) {
-        if (message.status === "completed") {
-            void markOutgoingTransferComplete(activeOutgoingTransfer);
-            return;
-        }
-        const progress = message.total_chunks > 0
-            ? Math.round((message.received_chunks / message.total_chunks) * 100)
-            : 0;
-        updateTransferItemProgress(
-            activeOutgoingTransfer.transferId,
-            activeOutgoingTransfer.metadata.fileName,
-            activeOutgoingTransfer.metadata.size,
-            progress
-        );
-        updateTransferQueueHint(activeOutgoingTransfer);
-        return;
-    }
-
-    const transfer = incomingTransfers.get(message.transfer_id);
-    if (transfer) {
-        if (message.status === "completed") {
-            hideTransferSummary();
-            return;
-        }
-        const progress = message.total_chunks > 0
-            ? Math.round((message.received_chunks / message.total_chunks) * 100)
-            : 0;
-        updateTransferItemProgress(message.transfer_id, transfer.metadata.fileName, transfer.totalSize, progress);
-        return;
-    }
-
-    if (message.status === "completed") {
-        hideTransferSummary();
-        return;
-    }
-
-    logEl.textContent = "收到文件状态，等待文件描述解密";
 }
 
 async function markOutgoingTransferComplete(transfer) {
@@ -1384,37 +1292,8 @@ function hasSessionKeyFor(room, password) {
     );
 }
 
-function setClipboardSyncState(state, text) {
-    clipboardSyncStatusEl.textContent = text;
-    clipboardSyncStatusEl.className = `sync-pill ${state}`;
-}
-
 function updateClipboardMeta() {
     clipboardCountEl.textContent = `${clipboardEl.value.length} 字`;
-}
-
-function setRoomStatus(text, state) {
-    roomStatusEl.textContent = text;
-    statusSummaryEl.className = `status-summary ${state}`;
-}
-
-function setTransferInfo(fileName, size, statusText) {
-    const progress = inferTransferProgress(statusText);
-    if (progress === null) {
-        return;
-    }
-
-    if (activeOutgoingTransfer) {
-        updateTransferItemProgress(
-            activeOutgoingTransfer.transferId,
-            activeOutgoingTransfer.metadata.fileName,
-            activeOutgoingTransfer.metadata.size,
-            progress
-        );
-        return;
-    }
-
-    updateMatchingTransferItem(fileName, size, progress);
 }
 
 function setTransferActivity(active) {
@@ -1457,7 +1336,7 @@ function normalizeRoom(value) {
 }
 
 function generateReadableCode(length) {
-    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghijkmnpqrstuvwxyz";
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghijkmnpqrstuvwxyz"; // pragma: allowlist secret
     const bytes = crypto.getRandomValues(new Uint8Array(length));
     let output = "";
 
@@ -1715,7 +1594,7 @@ function normalizeSenderProfile(profile, fallbackName = "其他设备", fallback
 }
 
 function generateDeviceShortCode() {
-    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // pragma: allowlist secret
     const bytes = crypto.getRandomValues(new Uint8Array(4));
     return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
 }
@@ -2207,4 +2086,3 @@ setClipboardSyncState("idle", "等待同步");
 setActiveMobileTab("file");
 connect();
 void refreshSessionKey();
-setClipboardSyncState("idle", "等待同步");

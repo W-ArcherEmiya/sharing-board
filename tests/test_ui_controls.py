@@ -183,7 +183,7 @@ class UIControlsTestCase(unittest.TestCase):
 
     def test_device_profiles_have_stable_encrypted_short_codes(self) -> None:
         script = (PROJECT_ROOT / "static" / "script.js").read_text(encoding="utf-8")
-        self.assertIn('const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";', script)
+        self.assertIn('const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";', script)  # pragma: allowlist secret
         self.assertIn("localStorage.setItem(\"sharing-board-device-profile\", JSON.stringify(deviceProfile));", script)
         self.assertIn("deviceId: deviceProfile?.deviceId", script)
         self.assertIn('`${profile.nickname} · ${profile.deviceId}`', script)

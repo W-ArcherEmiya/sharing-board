@@ -1,10 +1,11 @@
 import secrets
 import socket
-import subprocess
+# Only a fixed, bundled PowerShell command is executed.
+import subprocess  # nosec B404
 from ipaddress import IPv4Address, ip_address
 from typing import Iterable, Optional
 
-ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghijkmnpqrstuvwxyz"
+ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghijkmnpqrstuvwxyz"  # pragma: allowlist secret
 
 VIRTUAL_ADAPTER_KEYWORDS = (
     "anyconnect",
@@ -70,7 +71,8 @@ def score_candidate(candidate: dict) -> int:
 
     if address.is_private:
         score += 100
-    if gateway and gateway != "0.0.0.0":
+    # This is an address comparison, not a network bind.
+    if gateway and gateway != "0.0.0.0":  # nosec B104
         score += 50
     if any(keyword in text for keyword in PREFERRED_ADAPTER_KEYWORDS):
         score += 20
@@ -95,7 +97,8 @@ foreach ($item in $items) {
 }
 """
     try:
-        completed = subprocess.run(
+        # No user-provided value reaches the executable name or command text.
+        completed = subprocess.run(  # nosec B603 B607
             ["powershell", "-NoProfile", "-Command", command],
             capture_output=True,
             check=False,

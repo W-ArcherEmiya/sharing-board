@@ -15,3 +15,7 @@ tmp_pdf_pages_hi/
 
 # 忽略本机启动缓存
 .deps-installed.sha256
+
+# 忽略本地运行输出
+server.*.log
+tmp/
