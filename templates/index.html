@@ -3,161 +3,203 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Secure Clipboard</title>
-    <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
+    <meta name="theme-color" content="#f5f5f5">
+    <meta name="application-version" content="{{ app_version }}">
+    <title>文件传输助手 · Sharing Board</title>
+    <link rel="icon" type="image/png" href="/static/sharing-board-logo.png?v={{ asset_version }}">
+    <link rel="apple-touch-icon" href="/static/sharing-board-logo.png?v={{ asset_version }}">
+    <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}-formal-ui-v29">
 </head>
-<body>
-    <main class="app-shell">
-        <section class="panel hero">
-            <div class="hero-brand">
-                <div class="app-logo" aria-hidden="true">
-                    <svg viewBox="0 0 48 48" focusable="false">
-                        <rect x="4" y="4" width="40" height="40" rx="10"></rect>
-                        <path d="M15 11h12l7 7v19H15z"></path>
-                        <path d="M27 11v8h7"></path>
-                        <path d="M20 27h10"></path>
-                        <path d="M20 33h7"></path>
-                    </svg>
-                </div>
-                <div class="hero-copy">
-                    <h1>安全剪贴板 <span class="version-badge">V1.4.6</span></h1>
-                    <p class="eyebrow">SECURE CLIPBOARD</p>
-                </div>
-            </div>
-
-            <div class="hero-tools">
-                <button id="theme-toggle-btn" type="button" class="theme-switch" aria-pressed="false">
-                    <span class="theme-switch-track">
-                        <span class="theme-switch-thumb"></span>
-                    </span>
-                    <span class="theme-switch-label">浅色模式</span>
-                </button>
-
-                <div id="status-summary" class="status-summary disconnected">
-                    <span class="live-badge"><span class="status-indicator"></span>LIVE</span>
-                    <div class="status-copy">
-                        <strong id="connection-status">未连接</strong>
-                        <span id="room-status">未加入房间</span>
+<body data-stage="waiting">
+    <main class="product-shell">
+        <section id="waiting-screen" class="waiting-screen" aria-labelledby="waiting-title">
+            <header class="waiting-brand" aria-label="Sharing Board">
+                <div class="landing-nav-inner">
+                    <div class="brand-identity">
+                        <span class="assistant-avatar small brand-logo project-logo" aria-hidden="true">
+                            <img src="/static/sharing-board-logo.png?v={{ asset_version }}" alt="">
+                        </span>
+                        <span>Sharing Board</span>
                     </div>
+                    <span class="nav-safety"><i aria-hidden="true"></i>局域网安全直传</span>
                 </div>
+            </header>
+
+            <div class="waiting-content">
+                <div class="waiting-left">
+                    <div class="waiting-copy">
+                        <h1 id="waiting-title">多设备轻松传</h1>
+                        <p>使用另一台设备扫描二维码，连接成功后将自动打开传输界面。</p>
+                    </div>
+
+                    <ol class="connection-steps" aria-label="连接步骤">
+                        <li><b>1</b><span>扫描二维码</span></li>
+                        <li><b>2</b><span>选择文件或粘贴文本</span></li>
+                        <li><b>3</b><span>开始传输</span></li>
+                    </ol>
+                </div>
+
+                <article class="qr-card">
+                    <div class="qr-card-head">
+                        <div class="assistant-avatar small project-logo" aria-hidden="true">
+                            <img src="/static/sharing-board-logo.png?v={{ asset_version }}" alt="">
+                        </div>
+                        <div>
+                            <strong>Sharing Board</strong>
+                            <span>局域网文件传输</span>
+                        </div>
+                    </div>
+                    <div id="status-summary" class="status-summary disconnected">
+                        <span class="status-indicator"></span>
+                        <span id="connection-status">正在连接</span>
+                        <span class="status-divider">·</span>
+                        <span id="room-status">正在准备安全房间</span>
+                    </div>
+                    <div id="invite-qr" class="invite-qr" aria-label="房间邀请二维码"></div>
+                </article>
             </div>
+
+            <footer class="waiting-footer">
+                <span><i class="lock-dot" aria-hidden="true"></i>浏览器本地处理 · 仅在同一局域网内传输</span>
+            </footer>
         </section>
 
-        <section id="invite-panel" class="panel invite-panel collapsed" data-mobile-panel="connect">
-            <div class="invite-panel-head">
-                <div>
-                    <p class="eyebrow">QUICK JOIN</p>
-                    <h2>邀请其他设备</h2>
-                </div>
-                <button id="toggle-invite-panel-btn" type="button" class="secondary invite-panel-toggle" aria-expanded="false">展开二维码与邀请信息</button>
-            </div>
-
-            <div class="invite-panel-config">
-                <label class="field">
-                    <span class="field-tag">ROOM</span>
-                    <input type="text" id="room-id" maxlength="64" placeholder="例如：team-sync">
-                </label>
-                <label class="field">
-                    <span class="field-tag">KEY</span>
-                    <div class="password-wrap">
-                        <input type="password" id="password" placeholder="所有设备输入同一密码" autocomplete="off">
-                        <button id="toggle-password-btn" type="button" class="icon-btn" aria-label="显示密码" aria-pressed="false"></button>
+        <section id="chat-screen" class="chat-screen" aria-label="文件传输助手" aria-hidden="true">
+            <div class="chat-window">
+                <header class="chat-header">
+                    <div class="chat-identity">
+                        <div class="assistant-avatar project-logo" aria-hidden="true">
+                            <img src="/static/sharing-board-logo.png?v={{ asset_version }}" alt="">
+                        </div>
+                        <div>
+                            <h2>文件传输助手</h2>
+                            <p><span class="online-dot"></span><span id="device-count">设备已安全互联</span></p>
+                        </div>
                     </div>
-                </label>
-            </div>
-
-            <div class="invite-panel-body">
-                <div class="invite-copy">
-                    <div class="actions invite-actions">
-                        <button id="copy-invite-btn" type="button">复制邀请链接</button>
-                        <button id="regen-invite-btn" type="button" class="secondary">重置房间密码</button>
+                    <div class="header-actions">
+                        <button id="device-profile-btn" type="button" class="profile-avatar-button" aria-label="编辑我的头像和昵称" aria-expanded="false" title="我的设备">
+                            <span id="device-avatar-preview" class="device-avatar" aria-hidden="true"></span>
+                        </button>
+                        <button id="theme-toggle-btn" type="button" class="header-icon-btn" aria-label="切换明暗模式" aria-pressed="false" title="切换明暗模式">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.64 5.64l1.42 1.42M16.94 16.94l1.42 1.42M18.36 5.64l-1.42 1.42M7.06 16.94l-1.42 1.42"></path><circle cx="12" cy="12" r="4"></circle></svg>
+                            <span class="theme-switch-label">浅色模式</span>
+                        </button>
+                        <button id="toggle-invite-panel-btn" type="button" class="header-icon-btn share-trigger" aria-label="分享房间" aria-expanded="false" title="分享房间">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"></circle><circle cx="6" cy="12" r="2.5"></circle><circle cx="18" cy="19" r="2.5"></circle><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"></path></svg>
+                        </button>
                     </div>
-                    <div id="invite-link-preview" class="invite-link-preview">邀请链接生成中...</div>
-                </div>
-                <div class="qr-panel">
-                    <div id="invite-qr" class="invite-qr" aria-label="共享接入二维码"></div>
-                </div>
-            </div>
-        </section>
+                </header>
 
-        <section class="panel content-grid">
-            <div class="card text-card" data-mobile-panel="text">
-                <div class="card-head">
-                    <h2>文字同步</h2>
-                    <span class="hint">支持自动加密同步</span>
-                </div>
-                <textarea id="clipboard" placeholder="输入文字后会同步到同房间设备..." disabled></textarea>
-                <div class="card-footer">
-                    <div class="textarea-meta">
+                <section id="message-list" class="message-list" aria-live="polite">
+                    <div class="conversation-day"><span>今天</span></div>
+                    <div class="system-message welcome-message">
+                        <span class="system-status-icon" aria-hidden="true">✓</span>
+                        <p>连接成功，你可以发送文字或文件。</p>
+                    </div>
+                    <div class="file-bottom-panel">
+                        <div id="received-files" class="received-files"></div>
+                    </div>
+                </section>
+
+                <footer class="composer-shell">
+                    <label class="upload-box" for="file-input" title="选择文件" aria-label="选择文件">
+                        <input type="file" id="file-input" multiple disabled>
+                        <svg class="folder-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M3.5 6.5h6l2 2h9v10h-17z"></path>
+                        </svg>
+                    </label>
+                    <label class="composer-field" for="clipboard">
+                        <span>发送文字</span>
+                        <textarea id="clipboard" rows="1" maxlength="20000" aria-label="输入文字，按 Enter 发送" disabled></textarea>
+                    </label>
+                    <button id="copy-btn" type="button" class="send-button">发送</button>
+                    <div class="composer-utilities" aria-hidden="true">
                         <span id="clipboard-sync-status" class="sync-pill">等待同步</span>
                         <span id="clipboard-count" class="char-count">0 字</span>
+                        <span id="log" class="log-msg">正在建立安全连接…</span>
+                        <button id="clear-btn" type="button" class="text-button" tabindex="-1">清空</button>
                     </div>
-                    <div class="actions">
-                        <button id="clear-btn" type="button" class="secondary ghost-pink-btn">清空文本</button>
-                        <button id="copy-btn" type="button" class="pink-btn">复制文本</button>
-                    </div>
-                </div>
+                </footer>
             </div>
-
-            <div class="card file-card" data-mobile-panel="file">
-                <div class="card-head">
-                    <h2>文件传输</h2>
-                    <span class="hint">支持断点续传</span>
-                </div>
-                <label class="upload-box" for="file-input">
-                    <input type="file" id="file-input" multiple disabled>
-                    <span class="upload-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" focusable="false">
-                            <path d="M12 21V7"></path>
-                            <path d="m6 13 6-6 6 6"></path>
-                        </svg>
-                    </span>
-                    <strong>点击或拖拽文件到此处分享</strong>
-                    <small>单文件最大 64MB · 加密传输</small>
-                </label>
-                <div class="file-bottom-panel">
-                    <div id="received-files" class="received-files"></div>
-                </div>
-            </div>
-        </section>
-
-        <section class="panel footnote" data-mobile-panel="connect">
-            <p>同一房间号和密码的设备会自动同步。</p>
-            <div id="log" class="log-msg"></div>
         </section>
     </main>
 
+    <div id="share-backdrop" class="share-backdrop" hidden></div>
+    <aside id="invite-panel" class="invite-panel collapsed" aria-label="分享房间" aria-hidden="true">
+        <div class="invite-panel-head icon-only">
+            <button id="share-close-btn" type="button" class="close-btn" aria-label="关闭分享面板">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+            </button>
+        </div>
+        <div class="invite-panel-body">
+            <div id="invite-qr-mini" class="invite-qr mini" aria-label="房间邀请二维码"></div>
+            <p>扫描二维码即可进入同一传输房间</p>
+            <button id="copy-invite-btn" type="button" class="primary-wide">复制邀请链接</button>
+            <details class="room-details">
+                <summary>房间信息与设置</summary>
+                <label>
+                    <span>房间号</span>
+                    <input type="text" id="room-id" maxlength="64" placeholder="房间号">
+                </label>
+                <label>
+                    <span>访问密钥</span>
+                    <div class="password-wrap">
+                        <input type="password" id="password" placeholder="访问密钥" autocomplete="off">
+                        <button id="toggle-password-btn" type="button" class="password-toggle" aria-label="显示密码" aria-controls="password" aria-pressed="false">显示</button>
+                    </div>
+                </label>
+            </details>
+        </div>
+    </aside>
+
+    <div id="profile-backdrop" class="share-backdrop profile-backdrop" hidden></div>
+    <aside id="profile-panel" class="profile-panel collapsed" aria-label="我的设备资料" aria-hidden="true">
+        <div class="invite-panel-head">
+            <button id="profile-close-btn" type="button" class="close-btn" aria-label="关闭设备资料面板">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+            </button>
+        </div>
+        <div class="profile-panel-body">
+            <div id="profile-avatar-preview" class="profile-avatar-preview" aria-hidden="true"></div>
+            <div class="profile-avatar-actions">
+                <label class="avatar-upload-button" for="profile-avatar-input">
+                    <input id="profile-avatar-input" type="file" accept="image/png,image/jpeg,image/webp">
+                    选择头像
+                </label>
+                <button id="profile-reset-avatar-btn" type="button" class="profile-link-button" hidden>恢复文字头像</button>
+            </div>
+            <label class="profile-field">
+                <span>设备昵称</span>
+                <input id="profile-nickname-input" type="text" maxlength="20" placeholder="例如：小林的手机">
+            </label>
+            <div class="profile-color-picker">
+                <span>头像颜色</span>
+                <div role="group" aria-label="头像颜色">
+                    <button type="button" data-profile-color="#5b8def" class="profile-color-dot blue active" aria-label="蓝色头像"></button>
+                    <button type="button" data-profile-color="#07c160" class="profile-color-dot green" aria-label="绿色头像"></button>
+                    <button type="button" data-profile-color="#f08a5d" class="profile-color-dot coral" aria-label="橙色头像"></button>
+                    <button type="button" data-profile-color="#8a6de9" class="profile-color-dot violet" aria-label="紫色头像"></button>
+                    <button type="button" data-profile-color="#df6fa8" class="profile-color-dot pink" aria-label="粉色头像"></button>
+                    <button type="button" data-profile-color="#43b7b7" class="profile-color-dot cyan" aria-label="青色头像"></button>
+                </div>
+            </div>
+            <div class="theme-picker profile-theme-picker">
+                <span>主题颜色</span>
+                <div role="group" aria-label="主题颜色">
+                    <button type="button" data-accent="blue" class="color-dot blue active" aria-label="系统蓝"></button>
+                    <button type="button" data-accent="green" class="color-dot green" aria-label="清新绿"></button>
+                    <button type="button" data-accent="coral" class="color-dot coral" aria-label="珊瑚橙"></button>
+                    <button type="button" data-accent="violet" class="color-dot violet" aria-label="暮光紫"></button>
+                    <button type="button" data-accent="pink" class="color-dot pink" aria-label="樱花粉"></button>
+                    <button type="button" data-accent="cyan" class="color-dot cyan" aria-label="湖水青"></button>
+                </div>
+            </div>
+            <button id="profile-save-btn" type="button" class="primary-wide">保存设备资料</button>
+        </div>
+    </aside>
+
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-    <nav class="mobile-tabbar" aria-label="移动端功能切换">
-        <button type="button" data-mobile-tab="text" aria-label="文字同步">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M5 5h14"></path>
-                <path d="M5 12h14"></path>
-                <path d="M5 19h9"></path>
-            </svg>
-            <span>文字</span>
-        </button>
-        <button type="button" data-mobile-tab="file" aria-label="文件传输">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M6 3h8l4 4v14H6z"></path>
-                <path d="M14 3v5h5"></path>
-            </svg>
-            <span>文件</span>
-        </button>
-        <button type="button" data-mobile-tab="connect" aria-label="连接设备">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M4 4h6v6H4z"></path>
-                <path d="M14 4h6v6h-6z"></path>
-                <path d="M4 14h6v6H4z"></path>
-                <path d="M15 15h2"></path>
-                <path d="M19 15h1"></path>
-                <path d="M15 19h5"></path>
-            </svg>
-            <span>连接</span>
-        </button>
-    </nav>
-
-    <script src="/static/script.js?v={{ asset_version }}"></script>
+    <nav class="mobile-tabbar" aria-hidden="true"></nav>
+    <script src="/static/script.js?v={{ asset_version }}-formal-ui-v26"></script>
 </body>
 </html>

@@ -13,9 +13,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 MAX_ROOM_ID_LENGTH = 64
+APP_VERSION = "1.5.24"
 ASSET_VERSION = str(int(time.time()))
 
-app = FastAPI()
+app = FastAPI(title="Sharing Board", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -314,6 +315,7 @@ async def get_index(request: Request) -> HTMLResponse:
         "index.html",
         {
             "asset_version": ASSET_VERSION,
+            "app_version": APP_VERSION,
         },
     )
 
@@ -330,6 +332,19 @@ async def create_qr(payload: dict = Body(...)) -> Response:
     image = qr.make_image(image_factory=qrcode.image.svg.SvgPathImage)
     svg_bytes = image.to_string(encoding="unicode")
     return Response(content=svg_bytes, media_type="image/svg+xml")
+
+
+@app.get("/api/rooms/{room_id}/presence")
+async def get_room_presence(room_id: str) -> dict:
+    normalized_room = normalize_room_id(room_id)
+    if normalized_room is None:
+        return {"room": "", "peers": 0}
+
+    room = manager.rooms.get(normalized_room)
+    return {
+        "room": normalized_room,
+        "peers": len(room.connections) if room is not None else 0,
+    }
 
 
 @app.websocket("/ws")
