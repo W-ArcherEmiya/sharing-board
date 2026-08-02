@@ -2758,9 +2758,28 @@ button.is-loading::after {
     background: transparent;
 }
 
+.composer-shell .upload-box::after {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    left: -3.5px;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-unified);
+    background: transparent;
+    pointer-events: none;
+    transition: background-color 150ms ease;
+}
+
 .composer-shell .upload-box:hover,
 .composer-shell .upload-box.drag-active {
     color: var(--accent);
+    background: transparent;
+}
+
+.composer-shell .upload-box:hover::after,
+.composer-shell .upload-box.drag-active::after {
     background: var(--primary-soft);
 }
 
@@ -2778,6 +2797,8 @@ button.is-loading::after {
 }
 
 .composer-shell .folder-icon {
+    position: relative;
+    z-index: 1;
     width: 23px;
     height: 23px;
     display: block;
@@ -2869,6 +2890,10 @@ button.is-loading::after {
         left: 10px;
         width: 44px;
         height: 44px;
+    }
+
+    .composer-shell .upload-box::after {
+        top: 8px;
     }
 
     .composer-field,

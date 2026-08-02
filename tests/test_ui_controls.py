@@ -160,6 +160,29 @@ class UIControlsTestCase(unittest.TestCase):
         self.assertIn("padding: 36px 2px 40px;", clipboard_rule)
         self.assertIn("transform: translateX(-3px);", folder_rule)
 
+    def test_file_picker_feedback_is_centered_on_shifted_icon(self) -> None:
+        styles = (PROJECT_ROOT / "static" / "style.css").read_text(encoding="utf-8")
+        feedback_rule = styles.split(
+            ".composer-shell .upload-box::after {", 1
+        )[1].split("}", 1)[0]
+        hover_rule = styles.split(
+            ".composer-shell .upload-box:hover::after,", 1
+        )[1].split("}", 1)[0]
+        folder_rule = styles.split(
+            ".composer-shell .folder-icon {", 1
+        )[1].split("}", 1)[0]
+        mobile_feedback_rule = styles.rsplit(
+            ".composer-shell .upload-box::after {", 1
+        )[1].split("}", 1)[0]
+
+        self.assertIn("left: -3.5px;", feedback_rule)
+        self.assertIn("width: 28px;", feedback_rule)
+        self.assertIn("height: 28px;", feedback_rule)
+        self.assertIn("background: var(--primary-soft);", hover_rule)
+        self.assertIn("position: relative;", folder_rule)
+        self.assertIn("z-index: 1;", folder_rule)
+        self.assertIn("top: 8px;", mobile_feedback_rule)
+
     def test_avatar_picker_uses_regular_text_weight(self) -> None:
         styles = (PROJECT_ROOT / "static" / "style.css").read_text(encoding="utf-8")
         final_avatar_rule = styles.rsplit(".avatar-upload-button {", 1)[1].split("}", 1)[0]
