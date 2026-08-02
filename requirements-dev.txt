@@ -2,6 +2,6 @@
 
 httpx>=0.28.1
 httpx2>=2.9.1
-bandit>=1.9
+bandit>=1.9.4
 detect-secrets>=1.5
-pip-audit>=2.9
+pip-audit>=2.10.1
