@@ -1,21 +1,79 @@
+import asyncio
+import base64
+import binascii
 import json
+import secrets
 import time
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Set
+from urllib.parse import urlsplit
 
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 MAX_ROOM_ID_LENGTH = 64
-APP_VERSION = "1.5.27"
+MAX_IDENTIFIER_LENGTH = 128
+MAX_FILE_SIZE = 128 * 1024 * 1024
+MAX_FILE_CHUNK_SIZE = 256 * 1024
+MAX_FILE_CHUNKS = 512
+MAX_WEBSOCKET_MESSAGE_SIZE = 512 * 1024
+MAX_TEXT_BASE64_LENGTH = 128 * 1024
+MAX_METADATA_BASE64_LENGTH = 256 * 1024
+MAX_CHUNK_BASE64_LENGTH = 4 * ((MAX_FILE_CHUNK_SIZE + 16 + 2) // 3)
+MAX_IV_BASE64_LENGTH = 64
+MAX_SERVER_CACHE_BYTES = 256 * 1024 * 1024
+MAX_ROOMS = 64
+MAX_CONNECTIONS = 128
+MAX_ROOM_CONNECTIONS = 16
+ROOM_CACHE_TTL_SECONDS = 30 * 60
+ROOM_CLEANUP_INTERVAL_SECONDS = 60
+APP_VERSION = "1.6.0"
 ASSET_VERSION = str(int(time.time()))
+BASE_DIR = Path(__file__).resolve().parent
 
-app = FastAPI(title="Sharing Board", version=APP_VERSION)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+
+async def cleanup_expired_rooms() -> None:
+    while True:
+        await asyncio.sleep(ROOM_CLEANUP_INTERVAL_SECONDS)
+        manager.prune_expired_rooms()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    cleanup_task = asyncio.create_task(cleanup_expired_rooms())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup_task
+
+
+app = FastAPI(title="Sharing Board", version=APP_VERSION, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next) -> Response:
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; "
+        "form-action 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; connect-src 'self' ws: wss:"
+    )
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 @dataclass
@@ -31,13 +89,16 @@ class FileTransferState:
     status_message: Optional[str] = None
     sender_connection_id: Optional[int] = None
     completed: bool = False
+    cached_bytes: int = 0
 
 
 @dataclass
 class RoomState:
     connections: List[WebSocket] = field(default_factory=list)
     last_text_payload: Optional[str] = None
+    text_cached_bytes: int = 0
     file_transfer: Optional[FileTransferState] = None
+    last_activity: float = field(default_factory=time.monotonic)
 
 
 class ConnectionManager:
@@ -54,10 +115,23 @@ class ConnectionManager:
     async def join_room(self, websocket: WebSocket, room_id: str) -> None:
         await self.leave_room(websocket)
 
-        room = self.rooms.setdefault(room_id, RoomState())
+        self.prune_expired_rooms()
+        if len(self.connection_rooms) >= MAX_CONNECTIONS:
+            raise ValueError("connection_limit")
+
+        room = self.rooms.get(room_id)
+        if room is None:
+            if len(self.rooms) >= MAX_ROOMS:
+                raise ValueError("room_limit")
+            room = RoomState()
+            self.rooms[room_id] = room
+        if len(room.connections) >= MAX_ROOM_CONNECTIONS:
+            raise ValueError("room_connection_limit")
+
         if websocket not in room.connections:
             room.connections.append(websocket)
         self.connection_rooms[id(websocket)] = room_id
+        self._touch(room)
 
         await websocket.send_json(
             {
@@ -89,6 +163,7 @@ class ConnectionManager:
 
         if websocket in room.connections:
             room.connections.remove(websocket)
+        self._touch(room)
 
         file_transfer = room.file_transfer
         if (
@@ -97,9 +172,7 @@ class ConnectionManager:
             and not file_transfer.completed
         ):
             file_transfer.sender_connection_id = None
-            file_transfer.status_message = self._build_file_status_message(
-                file_transfer, "interrupted"
-            )
+            self._set_file_status(file_transfer, "interrupted")
             await self.broadcast_to_room(room, file_transfer.status_message, exclude=websocket)
 
         if not room.connections and room.last_text_payload is None and room.file_transfer is None:
@@ -110,7 +183,12 @@ class ConnectionManager:
 
     async def store_text_and_broadcast(self, websocket: WebSocket, payload_message: str) -> None:
         room = self._require_room_for(websocket)
+        payload_size = encoded_message_size(payload_message)
+        projected_size = self.cached_payload_bytes() - room.text_cached_bytes + payload_size
+        self._ensure_cache_capacity(projected_size)
         room.last_text_payload = payload_message
+        room.text_cached_bytes = payload_size
+        self._touch(room)
         await self.broadcast_to_room(room, payload_message, exclude=websocket)
 
     async def start_file_transfer(
@@ -134,7 +212,14 @@ class ConnectionManager:
             sender_connection_id=id(websocket),
         )
         file_transfer.status_message = self._build_file_status_message(file_transfer, "uploading")
+        file_transfer.cached_bytes = encoded_message_size(
+            manifest_message
+        ) + encoded_message_size(file_transfer.status_message)
+        previous_cached_bytes = room.file_transfer.cached_bytes if room.file_transfer else 0
+        projected_size = self.cached_payload_bytes() - previous_cached_bytes + file_transfer.cached_bytes
+        self._ensure_cache_capacity(projected_size)
         room.file_transfer = file_transfer
+        self._touch(room)
 
         await self.broadcast_to_room(room, manifest_message, exclude=websocket)
         await self.broadcast_to_room(room, file_transfer.status_message)
@@ -149,23 +234,29 @@ class ConnectionManager:
     ) -> None:
         room = self._require_room_for(websocket)
         file_transfer = self._require_matching_transfer(room, transfer_id, upload_token)
+        if index >= file_transfer.total_chunks:
+            raise ValueError("chunk_index")
 
         if file_transfer.sender_connection_id != id(websocket):
             file_transfer.sender_connection_id = id(websocket)
-            file_transfer.status_message = self._build_file_status_message(file_transfer, "resuming")
+            self._set_file_status(file_transfer, "resuming")
             await self.broadcast_to_room(room, file_transfer.status_message, exclude=websocket)
 
         if index not in file_transfer.received_indexes:
+            chunk_cached_bytes = encoded_message_size(chunk_message)
+            self._ensure_cache_capacity(self.cached_payload_bytes() + chunk_cached_bytes)
             file_transfer.received_indexes.add(index)
             file_transfer.chunk_messages[index] = chunk_message
+            file_transfer.cached_bytes += chunk_cached_bytes
             await self.broadcast_to_room(room, chunk_message, exclude=websocket)
 
         if len(file_transfer.received_indexes) >= file_transfer.total_chunks:
             file_transfer.completed = True
-            file_transfer.status_message = self._build_file_status_message(file_transfer, "completed")
+            self._set_file_status(file_transfer, "completed")
         else:
-            file_transfer.status_message = self._build_file_status_message(file_transfer, "uploading")
+            self._set_file_status(file_transfer, "uploading")
 
+        self._touch(room)
         await self.broadcast_to_room(room, file_transfer.status_message)
 
     async def send_resume_state(
@@ -177,12 +268,13 @@ class ConnectionManager:
         if file_transfer.sender_connection_id != id(websocket):
             file_transfer.sender_connection_id = id(websocket)
             if not file_transfer.completed:
-                file_transfer.status_message = self._build_file_status_message(file_transfer, "resuming")
+                self._set_file_status(file_transfer, "resuming")
                 await self.broadcast_to_room(room, file_transfer.status_message)
 
         missing_indexes = [
             index for index in range(file_transfer.total_chunks) if index not in file_transfer.received_indexes
         ]
+        self._touch(room)
         await websocket.send_json(
             {
                 "type": "file_resume_state",
@@ -222,11 +314,45 @@ class ConnectionManager:
         if file_transfer is None:
             raise ValueError("missing_manifest")
         if (
-            file_transfer.transfer_id != transfer_id
-            or file_transfer.upload_token != upload_token
+            not secrets.compare_digest(file_transfer.transfer_id, transfer_id)
+            or not secrets.compare_digest(file_transfer.upload_token, upload_token)
         ):
             raise ValueError("transfer_mismatch")
         return file_transfer
+
+    def cached_payload_bytes(self) -> int:
+        return sum(
+            room.text_cached_bytes
+            + (room.file_transfer.cached_bytes if room.file_transfer is not None else 0)
+            for room in self.rooms.values()
+        )
+
+    def prune_expired_rooms(self, now: Optional[float] = None) -> List[str]:
+        current_time = time.monotonic() if now is None else now
+        expired_room_ids = [
+            room_id
+            for room_id, room in self.rooms.items()
+            if not room.connections
+            and current_time - room.last_activity >= ROOM_CACHE_TTL_SECONDS
+        ]
+        for room_id in expired_room_ids:
+            self.rooms.pop(room_id, None)
+        return expired_room_ids
+
+    def _ensure_cache_capacity(self, projected_size: int) -> None:
+        if projected_size > MAX_SERVER_CACHE_BYTES:
+            raise ValueError("cache_limit")
+
+    def _set_file_status(self, file_transfer: FileTransferState, status: str) -> None:
+        previous_size = encoded_message_size(file_transfer.status_message)
+        file_transfer.status_message = self._build_file_status_message(file_transfer, status)
+        size_delta = encoded_message_size(file_transfer.status_message) - previous_size
+        self._ensure_cache_capacity(self.cached_payload_bytes() + max(0, size_delta))
+        file_transfer.cached_bytes += size_delta
+
+    @staticmethod
+    def _touch(room: RoomState) -> None:
+        room.last_activity = time.monotonic()
 
     def _build_file_status_message(self, file_transfer: FileTransferState, status: str) -> str:
         return json.dumps(
@@ -253,53 +379,101 @@ def normalize_room_id(value: object) -> Optional[str]:
     return room_id
 
 
-def is_non_empty_string(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
+def is_bounded_non_empty_string(value: object, max_length: int) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= max_length
 
 
-def is_base64_string(value: object) -> bool:
-    return is_non_empty_string(value)
+def is_bounded_base64_string(value: object, max_length: int) -> bool:
+    if not is_bounded_non_empty_string(value, max_length):
+        return False
+    try:
+        base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    return True
+
+
+def encoded_message_size(message: Optional[str]) -> int:
+    return len(message.encode("utf-8")) if message is not None else 0
+
+
+def sanitize_text_payload(payload: dict) -> Optional[dict]:
+    if (
+        payload.get("kind") != "text"
+        or not is_bounded_base64_string(payload.get("iv"), MAX_IV_BASE64_LENGTH)
+        or not is_bounded_base64_string(payload.get("data"), MAX_TEXT_BASE64_LENGTH)
+    ):
+        return None
+
+    sanitized = {
+        "kind": "text",
+        "iv": payload["iv"],
+        "data": payload["data"],
+    }
+    sender_iv = payload.get("sender_iv")
+    sender_data = payload.get("sender_data")
+    if sender_iv is None and sender_data is None:
+        return sanitized
+    if not (
+        is_bounded_base64_string(sender_iv, MAX_IV_BASE64_LENGTH)
+        and is_bounded_base64_string(sender_data, MAX_METADATA_BASE64_LENGTH)
+    ):
+        return None
+    sanitized["sender_iv"] = sender_iv
+    sanitized["sender_data"] = sender_data
+    return sanitized
 
 
 def validate_text_payload(payload: dict) -> bool:
-    return (
-        payload.get("kind") == "text"
-        and is_base64_string(payload.get("iv"))
-        and is_base64_string(payload.get("data"))
-    )
+    return sanitize_text_payload(payload) is not None
 
 
 def validate_file_manifest(message: dict) -> bool:
-    return (
-        is_non_empty_string(message.get("transfer_id"))
-        and is_non_empty_string(message.get("upload_token"))
+    if not (
+        is_bounded_non_empty_string(message.get("transfer_id"), MAX_IDENTIFIER_LENGTH)
+        and is_bounded_non_empty_string(message.get("upload_token"), MAX_IDENTIFIER_LENGTH)
         and isinstance(message.get("total_chunks"), int)
-        and message["total_chunks"] > 0
+        and 1 <= message["total_chunks"] <= MAX_FILE_CHUNKS
         and isinstance(message.get("total_size"), int)
-        and message["total_size"] >= 0
+        and 0 <= message["total_size"] <= MAX_FILE_SIZE
         and isinstance(message.get("chunk_size"), int)
-        and message["chunk_size"] > 0
-        and is_base64_string(message.get("meta_iv"))
-        and is_base64_string(message.get("meta_data"))
+        and 1 <= message["chunk_size"] <= MAX_FILE_CHUNK_SIZE
+        and is_bounded_base64_string(message.get("meta_iv"), MAX_IV_BASE64_LENGTH)
+        and is_bounded_base64_string(message.get("meta_data"), MAX_METADATA_BASE64_LENGTH)
+    ):
+        return False
+    expected_chunks = max(
+        1,
+        (message["total_size"] + message["chunk_size"] - 1) // message["chunk_size"],
     )
+    return message["total_chunks"] == expected_chunks
 
 
 def validate_file_chunk(message: dict) -> bool:
     return (
-        is_non_empty_string(message.get("transfer_id"))
-        and is_non_empty_string(message.get("upload_token"))
+        is_bounded_non_empty_string(message.get("transfer_id"), MAX_IDENTIFIER_LENGTH)
+        and is_bounded_non_empty_string(message.get("upload_token"), MAX_IDENTIFIER_LENGTH)
         and isinstance(message.get("index"), int)
-        and message["index"] >= 0
-        and is_base64_string(message.get("iv"))
-        and is_base64_string(message.get("data"))
+        and 0 <= message["index"] < MAX_FILE_CHUNKS
+        and is_bounded_base64_string(message.get("iv"), MAX_IV_BASE64_LENGTH)
+        and is_bounded_base64_string(message.get("data"), MAX_CHUNK_BASE64_LENGTH)
     )
 
 
 def validate_resume_request(message: dict) -> bool:
     return (
-        is_non_empty_string(message.get("transfer_id"))
-        and is_non_empty_string(message.get("upload_token"))
+        is_bounded_non_empty_string(message.get("transfer_id"), MAX_IDENTIFIER_LENGTH)
+        and is_bounded_non_empty_string(message.get("upload_token"), MAX_IDENTIFIER_LENGTH)
     )
+
+
+def is_allowed_websocket_origin(websocket: WebSocket) -> bool:
+    origin = websocket.headers.get("origin")
+    if not origin:
+        return True
+    parsed_origin = urlsplit(origin)
+    request_host = websocket.headers.get("host", "").lower()
+    return parsed_origin.scheme in {"http", "https"} and parsed_origin.netloc.lower() == request_host
 
 
 manager = ConnectionManager()
@@ -332,10 +506,18 @@ async def get_room_presence(room_id: str) -> dict:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
+    if not is_allowed_websocket_origin(websocket):
+        await websocket.close(code=1008)
+        return
+
     await manager.connect(websocket)
     try:
         while True:
             raw_message = await websocket.receive_text()
+            if encoded_message_size(raw_message) > MAX_WEBSOCKET_MESSAGE_SIZE:
+                await websocket.send_json({"type": "error", "message": "消息超过允许大小"})
+                await websocket.close(code=1009)
+                break
             try:
                 message = json.loads(raw_message)
             except json.JSONDecodeError:
@@ -352,20 +534,28 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 if room_id is None:
                     await websocket.send_json({"type": "error", "message": "房间号不能为空且长度不能超过 64"})
                     continue
-                await manager.join_room(websocket, room_id)
+                try:
+                    await manager.join_room(websocket, room_id)
+                except ValueError as error:
+                    await websocket.send_json(
+                        {"type": "error", "message": resolve_transfer_error_message(error)}
+                    )
                 continue
 
             if message_type == "payload":
                 payload = message.get("payload")
-                if not isinstance(payload, dict) or not validate_text_payload(payload):
+                sanitized_payload = sanitize_text_payload(payload) if isinstance(payload, dict) else None
+                if sanitized_payload is None:
                     await websocket.send_json({"type": "error", "message": "同步内容格式无效"})
                     continue
 
-                payload_message = json.dumps({"type": "payload", "payload": payload})
+                payload_message = json.dumps({"type": "payload", "payload": sanitized_payload})
                 try:
                     await manager.store_text_and_broadcast(websocket, payload_message)
-                except ValueError:
-                    await websocket.send_json({"type": "error", "message": "请先加入房间"})
+                except ValueError as error:
+                    await websocket.send_json(
+                        {"type": "error", "message": resolve_transfer_error_message(error)}
+                    )
                 continue
 
             if message_type == "file_manifest":
@@ -394,8 +584,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         total_size=message["total_size"],
                         chunk_size=message["chunk_size"],
                     )
-                except ValueError:
-                    await websocket.send_json({"type": "error", "message": "请先加入房间"})
+                except ValueError as error:
+                    await websocket.send_json(
+                        {"type": "error", "message": resolve_transfer_error_message(error)}
+                    )
                 continue
 
             if message_type == "file_chunk":
@@ -445,16 +637,31 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             await websocket.send_json({"type": "error", "message": "不支持的消息类型"})
     except WebSocketDisconnect:
+        pass
+    finally:
         await manager.disconnect(websocket)
 
 
 def resolve_transfer_error_message(error: ValueError) -> str:
-    if str(error) == "join_required":
+    error_code = str(error)
+    if error_code == "join_required":
         return "请先加入房间"
-    if str(error) == "missing_manifest":
+    if error_code == "missing_manifest":
         return "请先发送文件描述"
+    if error_code == "cache_limit":
+        return "服务器临时缓存已满，请稍后重试"
+    if error_code in {"connection_limit", "room_limit", "room_connection_limit"}:
+        return "当前连接数量已达安全上限"
+    if error_code == "chunk_index":
+        return "文件分片索引超出范围"
     return "传输状态已变化，请重新选择文件"
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        app,
+        # Listening on the LAN is the application's documented purpose.
+        host="0.0.0.0",  # nosec B104
+        port=8000,
+        ws_max_size=MAX_WEBSOCKET_MESSAGE_SIZE,
+    )

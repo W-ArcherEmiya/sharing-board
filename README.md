@@ -1,6 +1,6 @@
 # Sharing Board
 
-当前版本：`V1.5.27`
+当前版本：`V1.6.0`
 
 Sharing Board 是一个面向局域网的多设备加密传输工具，可在手机、电脑和平板之间发送文字与文件。文字、文件内容及发送者资料均在浏览器端加密；服务端负责房间路由、密文转发及必要的内存缓存，不参与解密。
 
@@ -54,6 +54,7 @@ https://你的局域网IP:8000
 python3 -m pip install -r requirements.txt
 python3 gen_cert.py
 python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 \
+  --ws-max-size 524288 \
   --ssl-keyfile key.pem --ssl-certfile cert.pem
 ```
 
@@ -86,11 +87,14 @@ python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 \
 
 - 单文件大小上限为 `128 MB`
 - 默认分片大小为 `256 KB`
+- 服务端会再次校验文件总大小、分片大小、分片数量、索引和消息尺寸，不能通过修改前端绕过上限
 - 多个文件按队列顺序发送，不会同时占用多条上传任务
 - 接收端会在浏览器内存中收集解密后的分片，再合并为可下载文件；低内存手机处理接近上限的文件时可能失败
 - 自动续传仅适用于原发送页面仍然打开、文件对象仍在且服务端进程未重启的临时网络中断
 - 刷新或关闭发送页面、重新选择房间、重启服务后，不能继续原传输，需要重新选择文件
 - 服务端不保存完整会话历史；新加入设备只会收到服务器内存中最近的加密文字和最近一次文件传输状态
+- 无设备在线的房间在闲置 `30 分钟`后会自动清理；服务端总密文缓存上限为 `256 MB`
+- 默认最多保留 `64` 个房间、`128` 个在线连接，每个房间最多 `16` 台设备
 - 当前不适合超大文件、跨天传输、后台持久下载或长期文件存储
 
 ## 安全与隐私
@@ -102,7 +106,12 @@ python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 \
 - 服务端会在内存中临时保存最近一条加密文字、最近一次文件的加密分片及续传状态；停止服务后这些内容会清空
 - 邀请链接本身包含访问密钥，获得链接的人可以加入房间，请勿通过公开渠道分享
 - 自签名证书用于加密局域网传输，但不等同于公共 CA 的身份验证
+- WebSocket 连接会校验浏览器请求来源，页面响应包含内容安全策略、防嵌入和禁止 MIME 嗅探等安全响应头
+- 本项目没有账户系统；任何获得完整邀请链接的人都可以加入对应房间
 - 本项目适合可信局域网内的临时传输，不应作为高强度涉密系统或永久文件存储服务
+- 不要配置公网端口转发、直接暴露到互联网，或将其当作面向不受信任用户的公共托管服务
+
+发现安全问题时，请不要在公开 Issue 中披露利用细节，按照 [SECURITY.md](SECURITY.md) 中的流程报告。
 
 ## 常见问题
 
@@ -135,11 +144,29 @@ python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 \
 ## 测试
 
 ```bash
+python -m pip install -r requirements-dev.txt
 python -m unittest discover -s tests
 ```
 
 浏览器脚本还可以进行语法检查：
 
 ```bash
+node --check static/vendor/qrcode.js
 node --check static/script.js
 ```
+
+依赖漏洞和 Python 安全静态检查：
+
+```bash
+python -m pip_audit -r requirements-dev.txt
+python -m bandit -r main.py gen_cert.py launch_config.py -q
+detect-secrets scan
+```
+
+## 参与贡献
+
+提交改动前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并确保 Python 测试和浏览器脚本语法检查全部通过。
+
+## 开源许可
+
+Sharing Board 使用 [MIT License](LICENSE)。内置第三方组件的许可信息见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

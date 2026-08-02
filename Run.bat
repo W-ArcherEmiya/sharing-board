@@ -99,6 +99,6 @@ echo.
 
 start "" powershell -NoProfile -Command "Start-Sleep -Seconds 3; Start-Process -FilePath '%APP_URL%'"
 
-%PYTHON_CMD% -m uvicorn main:app --host 0.0.0.0 --port 8000 --ssl-keyfile key.pem --ssl-certfile cert.pem
+%PYTHON_CMD% -m uvicorn main:app --host 0.0.0.0 --port 8000 --ws-max-size 524288 --ssl-keyfile key.pem --ssl-certfile cert.pem
 
 pause

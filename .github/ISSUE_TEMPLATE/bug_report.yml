@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible problem in Sharing Board
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not include room links, access keys, personal files, or security vulnerability details.
+
+  - type: input
+    id: version
+    attributes:
+      label: Sharing Board version
+      placeholder: "1.6.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating systems, browsers, device types, and network setup involved.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start Sharing Board...
+        2. Join from another device...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Sanitized screenshots or logs may be attached here.
